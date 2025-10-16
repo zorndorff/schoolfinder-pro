@@ -1,5 +1,6 @@
 # School Finder build artifacts
 schoolfinder
+.claude
 
 # AI scraper cache
 .school_cache/

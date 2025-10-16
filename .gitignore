@@ -1,0 +1,9 @@
+# School Finder build artifacts
+schoolfinder
+
+# AI scraper cache
+.school_cache/
+tmpdata/
+
+# API keys (if stored locally)
+.env

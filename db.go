@@ -1,0 +1,543 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	_ "github.com/marcboeker/go-duckdb"
+)
+
+type School struct {
+	NCESSCH        string
+	Name           string
+	State          string
+	StateName      string
+	City           string
+	District       string
+	SchoolYear     string
+	Teachers       sql.NullFloat64
+	Level          sql.NullString
+	Phone          sql.NullString
+	Website        sql.NullString
+	Zip            sql.NullString
+	Street1        sql.NullString
+	Street2        sql.NullString
+	Street3        sql.NullString
+	SchoolType     sql.NullString
+	GradeLow       sql.NullString
+	GradeHigh      sql.NullString
+	CharterText    sql.NullString
+	Enrollment     sql.NullInt64
+}
+
+type DB struct {
+	conn    *sql.DB
+	dataDir string
+}
+
+func NewDB(dataDir string) (*DB, error) {
+	dbPath := filepath.Join(dataDir, "data.duckdb")
+
+	// Check if database needs to be initialized
+	needsInit := false
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		needsInit = true
+	}
+
+	// Open the database file
+	db, err := sql.Open("duckdb", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open duckdb: %w", err)
+	}
+
+	d := &DB{
+		conn:    db,
+		dataDir: dataDir,
+	}
+
+	// Initialize database if needed
+	if needsInit {
+		fmt.Println("📊 Initializing database from CSV files...")
+		if err := d.initializeDatabase(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("failed to initialize database: %w", err)
+		}
+		fmt.Println("✅ Database initialized successfully!\n")
+	} else {
+		// For existing databases, ensure FTS extension is loaded
+		_, err := d.conn.Exec("LOAD fts;")
+		if err != nil {
+			// Try installing first if not available
+			_, err = d.conn.Exec("INSTALL fts; LOAD fts;")
+			if err != nil {
+				return nil, fmt.Errorf("failed to load FTS extension: %w", err)
+			}
+		}
+	}
+
+	return d, nil
+}
+
+// initializeDatabase creates tables and loads data from CSV files
+func (d *DB) initializeDatabase() error {
+	directoryFile := filepath.Join(d.dataDir, "ccd_sch_029_2324_w_1a_073124.csv")
+	teacherFile := filepath.Join(d.dataDir, "ccd_sch_059_2324_l_1a_073124.csv")
+	enrollmentFile := filepath.Join(d.dataDir, "ccd_sch_052_2324_l_1a_073124.csv")
+
+	// Install and load FTS extension
+	fmt.Println("   Installing FTS extension...")
+	start := time.Now()
+	_, err := d.conn.Exec("INSTALL fts; LOAD fts;")
+	if err != nil {
+		return fmt.Errorf("failed to load FTS extension: %w", err)
+	}
+	fmt.Printf("   ✓ FTS extension loaded (%v)\n", time.Since(start))
+
+	// Start transaction for faster bulk insert
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Create directory table
+	fmt.Println("   Loading school directory...")
+	start = time.Now()
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE directory AS
+		SELECT * FROM read_csv('%s', all_varchar=true)
+	`, directoryFile))
+	if err != nil {
+		return fmt.Errorf("failed to create directory table: %w", err)
+	}
+	fmt.Printf("   ✓ Directory loaded (%v)\n", time.Since(start))
+
+	// Create indexes on directory table
+	fmt.Println("   Creating indexes on directory...")
+	start = time.Now()
+	_, err = tx.Exec(`CREATE INDEX idx_directory_ncessch ON directory(NCESSCH)`)
+	if err != nil {
+		return fmt.Errorf("failed to create index on NCESSCH: %w", err)
+	}
+	_, err = tx.Exec(`CREATE INDEX idx_directory_state ON directory(ST)`)
+	if err != nil {
+		return fmt.Errorf("failed to create index on ST: %w", err)
+	}
+	_, err = tx.Exec(`CREATE INDEX idx_directory_name ON directory(SCH_NAME)`)
+	if err != nil {
+		return fmt.Errorf("failed to create index on SCH_NAME: %w", err)
+	}
+	fmt.Printf("   ✓ Indexes created (%v)\n", time.Since(start))
+
+	// Create teacher table
+	fmt.Println("   Loading teacher data...")
+	start = time.Now()
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE teachers AS
+		SELECT * FROM read_csv('%s', all_varchar=true)
+	`, teacherFile))
+	if err != nil {
+		return fmt.Errorf("failed to create teachers table: %w", err)
+	}
+	fmt.Printf("   ✓ Teachers loaded (%v)\n", time.Since(start))
+
+	// Create index on teachers table
+	_, err = tx.Exec(`CREATE INDEX idx_teachers_ncessch ON teachers(NCESSCH)`)
+	if err != nil {
+		return fmt.Errorf("failed to create index on teachers NCESSCH: %w", err)
+	}
+
+	// Create enrollment table
+	fmt.Println("   Loading enrollment data...")
+	start = time.Now()
+	_, err = tx.Exec(fmt.Sprintf(`
+		CREATE TABLE enrollment AS
+		SELECT * FROM read_csv('%s', all_varchar=true)
+	`, enrollmentFile))
+	if err != nil {
+		return fmt.Errorf("failed to create enrollment table: %w", err)
+	}
+	fmt.Printf("   ✓ Enrollment loaded (%v)\n", time.Since(start))
+
+	// Create index on enrollment table
+	_, err = tx.Exec(`CREATE INDEX idx_enrollment_ncessch ON enrollment(NCESSCH)`)
+	if err != nil {
+		return fmt.Errorf("failed to create index on enrollment NCESSCH: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Create FTS index (must be done outside transaction)
+	fmt.Println("   Creating full-text search index...")
+	start = time.Now()
+	_, err = d.conn.Exec(`
+		PRAGMA create_fts_index(
+			'directory',
+			'NCESSCH',
+			'SCH_NAME',
+			'LEA_NAME',
+			'MCITY',
+			'MSTREET1',
+			'MZIP',
+			overwrite=1
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create FTS index: %w", err)
+	}
+	fmt.Printf("   ✓ FTS index created (%v)\n", time.Since(start))
+
+	return nil
+}
+
+func (d *DB) Close() error {
+	return d.conn.Close()
+}
+
+func (d *DB) SearchSchools(query string, state string, limit int) ([]School, error) {
+	var schools []School
+
+	// Build the SQL query using FTS when query is provided
+	var sqlQuery string
+	var args []interface{}
+
+	if query != "" {
+		// Use full-text search with relevance ranking
+		args = append(args, query)
+		argIdx := 1
+
+		stateFilter := ""
+		if state != "" {
+			argIdx = 2
+			stateFilter = fmt.Sprintf("AND d.ST = $%d", argIdx)
+			args = append(args, state)
+		}
+
+		sqlQuery = fmt.Sprintf(`
+			SELECT
+				d.NCESSCH,
+				d.SCH_NAME,
+				d.ST,
+				d.STATENAME,
+				COALESCE(d.MCITY, ''),
+				COALESCE(d.LEA_NAME, ''),
+				d.SCHOOL_YEAR,
+				t.TEACHERS,
+				d.LEVEL,
+				d.PHONE,
+				d.WEBSITE,
+				d.MZIP,
+				d.MSTREET1,
+				d.MSTREET2,
+				d.MSTREET3,
+				d.SCH_TYPE_TEXT,
+				d.GSLO,
+				d.GSHI,
+				d.CHARTER_TEXT,
+				e.STUDENT_COUNT
+			FROM directory d
+			LEFT JOIN teachers t ON d.NCESSCH = t.NCESSCH
+			LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total'
+			WHERE fts_main_directory.match_bm25(d.NCESSCH, $1) IS NOT NULL
+			%s
+			ORDER BY fts_main_directory.match_bm25(d.NCESSCH, $1) DESC
+			LIMIT %d
+		`, stateFilter, limit)
+	} else {
+		// No search query, just filter by state if provided
+		whereClause := "WHERE 1=1"
+		argIdx := 1
+
+		if state != "" {
+			whereClause += fmt.Sprintf(" AND d.ST = $%d", argIdx)
+			args = append(args, state)
+		}
+
+		sqlQuery = fmt.Sprintf(`
+			SELECT
+				d.NCESSCH,
+				d.SCH_NAME,
+				d.ST,
+				d.STATENAME,
+				COALESCE(d.MCITY, ''),
+				COALESCE(d.LEA_NAME, ''),
+				d.SCHOOL_YEAR,
+				t.TEACHERS,
+				d.LEVEL,
+				d.PHONE,
+				d.WEBSITE,
+				d.MZIP,
+				d.MSTREET1,
+				d.MSTREET2,
+				d.MSTREET3,
+				d.SCH_TYPE_TEXT,
+				d.GSLO,
+				d.GSHI,
+				d.CHARTER_TEXT,
+				e.STUDENT_COUNT
+			FROM directory d
+			LEFT JOIN teachers t ON d.NCESSCH = t.NCESSCH
+			LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total'
+			%s
+			ORDER BY d.SCH_NAME
+			LIMIT %d
+		`, whereClause, limit)
+	}
+
+	rows, err := d.conn.Query(sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var s School
+		err := rows.Scan(
+			&s.NCESSCH,
+			&s.Name,
+			&s.State,
+			&s.StateName,
+			&s.City,
+			&s.District,
+			&s.SchoolYear,
+			&s.Teachers,
+			&s.Level,
+			&s.Phone,
+			&s.Website,
+			&s.Zip,
+			&s.Street1,
+			&s.Street2,
+			&s.Street3,
+			&s.SchoolType,
+			&s.GradeLow,
+			&s.GradeHigh,
+			&s.CharterText,
+			&s.Enrollment,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan failed: %w", err)
+		}
+		schools = append(schools, s)
+	}
+
+	return schools, rows.Err()
+}
+
+func (d *DB) GetSchoolByID(ncessch string) (*School, error) {
+	sqlQuery := `
+		SELECT
+			d.NCESSCH,
+			d.SCH_NAME,
+			d.ST,
+			d.STATENAME,
+			COALESCE(d.MCITY, ''),
+			COALESCE(d.LEA_NAME, ''),
+			d.SCHOOL_YEAR,
+			t.TEACHERS,
+			d.LEVEL,
+			d.PHONE,
+			d.WEBSITE,
+			d.MZIP,
+			d.MSTREET1,
+			d.MSTREET2,
+			d.MSTREET3,
+			d.SCH_TYPE_TEXT,
+			d.GSLO,
+			d.GSHI,
+			d.CHARTER_TEXT,
+			e.STUDENT_COUNT
+		FROM directory d
+		LEFT JOIN teachers t ON d.NCESSCH = t.NCESSCH
+		LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total'
+		WHERE d.NCESSCH = $1
+		LIMIT 1
+	`
+
+	var s School
+	err := d.conn.QueryRow(sqlQuery, ncessch).Scan(
+		&s.NCESSCH,
+		&s.Name,
+		&s.State,
+		&s.StateName,
+		&s.City,
+		&s.District,
+		&s.SchoolYear,
+		&s.Teachers,
+		&s.Level,
+		&s.Phone,
+		&s.Website,
+		&s.Zip,
+		&s.Street1,
+		&s.Street2,
+		&s.Street3,
+		&s.SchoolType,
+		&s.GradeLow,
+		&s.GradeHigh,
+		&s.CharterText,
+		&s.Enrollment,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("school not found: %w", err)
+	}
+
+	return &s, nil
+}
+
+func (d *DB) GetStates() ([]string, error) {
+	sqlQuery := `
+		SELECT DISTINCT ST
+		FROM directory
+		ORDER BY ST
+	`
+
+	rows, err := d.conn.Query(sqlQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var states []string
+	for rows.Next() {
+		var state string
+		if err := rows.Scan(&state); err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+
+	return states, rows.Err()
+}
+
+func (s *School) DisplayName() string {
+	return fmt.Sprintf("%s (%s, %s)", s.Name, s.City, s.State)
+}
+
+func (s *School) TeachersString() string {
+	if s.Teachers.Valid {
+		return fmt.Sprintf("%.1f", s.Teachers.Float64)
+	}
+	return "N/A"
+}
+
+func (s *School) LevelString() string {
+	if s.Level.Valid {
+		return s.Level.String
+	}
+	return "N/A"
+}
+
+func (s *School) PhoneString() string {
+	if s.Phone.Valid && s.Phone.String != "" {
+		return s.Phone.String
+	}
+	return "N/A"
+}
+
+func (s *School) WebsiteString() string {
+	if s.Website.Valid && s.Website.String != "" {
+		return s.Website.String
+	}
+	return "N/A"
+}
+
+func (s *School) FullAddress() string {
+	var parts []string
+
+	if s.Street1.Valid && s.Street1.String != "" {
+		parts = append(parts, s.Street1.String)
+	}
+	if s.Street2.Valid && s.Street2.String != "" {
+		parts = append(parts, s.Street2.String)
+	}
+	if s.Street3.Valid && s.Street3.String != "" {
+		parts = append(parts, s.Street3.String)
+	}
+
+	if len(parts) == 0 {
+		return "N/A"
+	}
+
+	var address string
+	for i, part := range parts {
+		if i > 0 {
+			address += "\n                      "
+		}
+		address += part
+	}
+
+	return address
+}
+
+func (s *School) ZipString() string {
+	if s.Zip.Valid && s.Zip.String != "" {
+		return s.Zip.String
+	}
+	return "N/A"
+}
+
+func (s *School) SchoolTypeString() string {
+	if s.SchoolType.Valid && s.SchoolType.String != "" {
+		return s.SchoolType.String
+	}
+	return "N/A"
+}
+
+func (s *School) GradeRangeString() string {
+	if s.GradeLow.Valid && s.GradeHigh.Valid {
+		low := s.GradeLow.String
+		high := s.GradeHigh.String
+
+		// Convert grade codes to readable format
+		gradeMap := map[string]string{
+			"PK": "Pre-K", "KG": "K", "01": "1", "02": "2", "03": "3",
+			"04": "4", "05": "5", "06": "6", "07": "7", "08": "8",
+			"09": "9", "10": "10", "11": "11", "12": "12", "13": "13",
+			"UG": "Ungraded", "AE": "Adult Ed",
+		}
+
+		lowDisplay := gradeMap[low]
+		highDisplay := gradeMap[high]
+
+		if lowDisplay == "" {
+			lowDisplay = low
+		}
+		if highDisplay == "" {
+			highDisplay = high
+		}
+
+		return fmt.Sprintf("%s - %s", lowDisplay, highDisplay)
+	}
+	return "N/A"
+}
+
+func (s *School) CharterString() string {
+	if s.CharterText.Valid && s.CharterText.String != "" {
+		charter := s.CharterText.String
+		if charter == "Not applicable" || charter == "No" {
+			return "No"
+		}
+		return "Yes"
+	}
+	return "N/A"
+}
+
+func (s *School) EnrollmentString() string {
+	if s.Enrollment.Valid {
+		return fmt.Sprintf("%d", s.Enrollment.Int64)
+	}
+	return "N/A"
+}
+
+func (s *School) StudentTeacherRatio() string {
+	if s.Enrollment.Valid && s.Teachers.Valid && s.Teachers.Float64 > 0 {
+		ratio := float64(s.Enrollment.Int64) / s.Teachers.Float64
+		return fmt.Sprintf("%.1f:1", ratio)
+	}
+	return "N/A"
+}

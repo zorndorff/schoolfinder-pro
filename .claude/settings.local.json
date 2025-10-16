@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(duckdb:*)",
+      "Bash(go build:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

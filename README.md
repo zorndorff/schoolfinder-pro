@@ -2,6 +2,8 @@
 
 A terminal user interface (TUI) application for searching and exploring school data from the Common Core of Data (CCD) using DuckDB and Charmbracelet's Bubble Tea framework.
 
+![Demo](./docs/demo.gif)
+
 ## Features
 
 - **Fast Search**: Powered by DuckDB for instant queries across 100K+ schools

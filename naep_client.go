@@ -42,6 +42,7 @@ type NAEPData struct {
 	ExtractedAt    time.Time   `json:"extracted_at"`
 	StateScores    []NAEPScore `json:"state_scores"`
 	DistrictScores []NAEPScore `json:"district_scores,omitempty"`
+	NationalScores []NAEPScore `json:"national_scores,omitempty"`
 }
 
 // NAEPClient handles NAEP API requests and caching
@@ -153,6 +154,16 @@ func (c *NAEPClient) FetchNAEPData(school *School) (*NAEPData, error) {
 	}
 
 	data.StateScores = stateScores
+
+	// Fetch national-level data for comparison
+	nationalScores, err := c.fetchScoresForJurisdiction("NP", grades, years)
+	if err == nil && len(nationalScores) > 0 {
+		data.NationalScores = nationalScores
+	} else {
+		if logger != nil {
+			logger.Warn("Failed to fetch national scores for comparison", "error", err, "school_id", school.NCESSCH)
+		}
+	}
 
 	// Attempt to fetch district-level data for large cities
 	if districtCode := c.matchDistrict(school); districtCode != "" {
@@ -405,7 +416,7 @@ func (c *NAEPClient) getCachedData(ncessch string) (*NAEPData, error) {
 		return nil, fmt.Errorf("database not available")
 	}
 
-	state, district, stateScoresJSON, districtScoresJSON, extractedAt, err := c.db.LoadNAEPCache(ncessch, c.cacheTTL)
+	state, district, stateScoresJSON, districtScoresJSON, nationalScoresJSON, extractedAt, err := c.db.LoadNAEPCache(ncessch, c.cacheTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -434,6 +445,16 @@ func (c *NAEPClient) getCachedData(ncessch string) (*NAEPData, error) {
 				logger.Error("Failed to unmarshal district scores from cache", "error", err, "ncessch", ncessch)
 			}
 			return nil, fmt.Errorf("failed to unmarshal district scores: %w", err)
+		}
+	}
+
+	// Unmarshal national scores
+	if len(nationalScoresJSON) > 0 {
+		if err := json.Unmarshal(nationalScoresJSON, &data.NationalScores); err != nil {
+			if logger != nil {
+				logger.Error("Failed to unmarshal national scores from cache", "error", err, "ncessch", ncessch)
+			}
+			return nil, fmt.Errorf("failed to unmarshal national scores: %w", err)
 		}
 	}
 
@@ -466,12 +487,24 @@ func (c *NAEPClient) cacheData(ncessch string, data *NAEPData) error {
 		}
 	}
 
+	var nationalScoresJSON []byte
+	if len(data.NationalScores) > 0 {
+		nationalScoresJSON, err = json.Marshal(data.NationalScores)
+		if err != nil {
+			if logger != nil {
+				logger.Error("Failed to marshal national scores", "error", err, "ncessch", ncessch)
+			}
+			return fmt.Errorf("failed to marshal national scores: %w", err)
+		}
+	}
+
 	return c.db.SaveNAEPCache(
 		ncessch,
 		data.State,
 		data.District,
 		stateScoresJSON,
 		districtScoresJSON,
+		nationalScoresJSON,
 		data.ExtractedAt,
 	)
 }

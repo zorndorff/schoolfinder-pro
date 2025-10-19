@@ -255,6 +255,7 @@ func (d *DB) createCacheTables() error {
 			extracted_at TIMESTAMP,
 			state_scores JSON,
 			district_scores JSON,
+			national_scores JSON,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
@@ -718,20 +719,21 @@ func (d *DB) LoadAIScraperCache(ncessch string, maxAge time.Duration) (schoolNam
 }
 
 // SaveNAEPCache saves NAEP data to the database cache
-func (d *DB) SaveNAEPCache(ncessch, state, district string, stateScores, districtScores []byte, extractedAt time.Time) error {
+func (d *DB) SaveNAEPCache(ncessch, state, district string, stateScores, districtScores, nationalScores []byte, extractedAt time.Time) error {
 	query := `
-		INSERT INTO naep_cache (ncessch, state, district, state_scores, district_scores, extracted_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO naep_cache (ncessch, state, district, state_scores, district_scores, national_scores, extracted_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (ncessch) DO UPDATE SET
 			state = EXCLUDED.state,
 			district = EXCLUDED.district,
 			state_scores = EXCLUDED.state_scores,
 			district_scores = EXCLUDED.district_scores,
+			national_scores = EXCLUDED.national_scores,
 			extracted_at = EXCLUDED.extracted_at,
 			created_at = CURRENT_TIMESTAMP
 	`
 
-	_, err := d.conn.Exec(query, ncessch, state, district, string(stateScores), string(districtScores), extractedAt)
+	_, err := d.conn.Exec(query, ncessch, state, district, string(stateScores), string(districtScores), string(nationalScores), extractedAt)
 	if err != nil {
 		if logger != nil {
 			logger.Error("Failed to save NAEP cache", "error", err, "ncessch", ncessch)
@@ -747,30 +749,30 @@ func (d *DB) SaveNAEPCache(ncessch, state, district string, stateScores, distric
 }
 
 // LoadNAEPCache loads NAEP data from the database cache
-func (d *DB) LoadNAEPCache(ncessch string, maxAge time.Duration) (state, district string, stateScores, districtScores []byte, extractedAt time.Time, err error) {
+func (d *DB) LoadNAEPCache(ncessch string, maxAge time.Duration) (state, district string, stateScores, districtScores, nationalScores []byte, extractedAt time.Time, err error) {
 	query := `
-		SELECT state, district, state_scores, district_scores, extracted_at
+		SELECT state, district, state_scores, district_scores, national_scores, extracted_at
 		FROM naep_cache
 		WHERE ncessch = $1
 	`
 
-	var stateScoresStr, districtScoresStr sql.NullString
+	var stateScoresStr, districtScoresStr, nationalScoresStr sql.NullString
 	var districtNull sql.NullString
 
-	err = d.conn.QueryRow(query, ncessch).Scan(&state, &districtNull, &stateScoresStr, &districtScoresStr, &extractedAt)
+	err = d.conn.QueryRow(query, ncessch).Scan(&state, &districtNull, &stateScoresStr, &districtScoresStr, &nationalScoresStr, &extractedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", "", nil, nil, time.Time{}, fmt.Errorf("no cache entry found")
+			return "", "", nil, nil, nil, time.Time{}, fmt.Errorf("no cache entry found")
 		}
 		if logger != nil {
 			logger.Error("Failed to load NAEP cache", "error", err, "ncessch", ncessch)
 		}
-		return "", "", nil, nil, time.Time{}, fmt.Errorf("failed to load NAEP cache: %w", err)
+		return "", "", nil, nil, nil, time.Time{}, fmt.Errorf("failed to load NAEP cache: %w", err)
 	}
 
 	// Check if cache is expired
 	if time.Since(extractedAt) > maxAge {
-		return "", "", nil, nil, time.Time{}, fmt.Errorf("cache expired")
+		return "", "", nil, nil, nil, time.Time{}, fmt.Errorf("cache expired")
 	}
 
 	if districtNull.Valid {
@@ -785,9 +787,13 @@ func (d *DB) LoadNAEPCache(ncessch string, maxAge time.Duration) (state, distric
 		districtScores = []byte(districtScoresStr.String)
 	}
 
+	if nationalScoresStr.Valid && nationalScoresStr.String != "" {
+		nationalScores = []byte(nationalScoresStr.String)
+	}
+
 	if logger != nil {
 		logger.Info("Loaded NAEP data from database cache", "ncessch", ncessch, "age_days", int(time.Since(extractedAt).Hours()/24))
 	}
 
-	return state, district, stateScores, districtScores, extractedAt, nil
+	return state, district, stateScores, districtScores, nationalScores, extractedAt, nil
 }

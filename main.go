@@ -1000,6 +1000,62 @@ func (m model) detailViewContent() string {
 
 				b.WriteString("\n")
 			}
+
+			// National comparison section
+			if len(m.naepData.NationalScores) > 0 {
+				comparisonHeader := lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("99")).
+					Render("═══ National Comparison ═══")
+				b.WriteString(comparisonHeader)
+				b.WriteString("\n")
+				b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("How does local performance compare to the nation?"))
+				b.WriteString("\n\n")
+
+				// For each subject, show national comparisons
+				for _, subject := range []string{"mathematics", "reading", "science"} {
+					localScore := m.naepData.GetMostRecentScore(subject, grade, useDistrict)
+
+					// Find the matching national score
+					var nationalScoreData *NAEPScore
+					for i := range m.naepData.NationalScores {
+						score := &m.naepData.NationalScores[i]
+						if score.Subject == subject && score.Grade == grade {
+							// Get most recent year
+							if nationalScoreData == nil || score.Year > nationalScoreData.Year {
+								nationalScoreData = score
+							}
+						}
+					}
+
+					if localScore != nil && nationalScoreData != nil {
+						// Show comparison card
+						b.WriteString(NAEPNationalComparisonCard(
+							subject,
+							grade,
+							localScore.AtProficient,
+							nationalScoreData.AtProficient,
+						))
+						b.WriteString("\n\n")
+
+						// Show score comparison bars
+						localLabel := "Local"
+						if useDistrict {
+							localLabel = "District"
+						} else {
+							localLabel = "State"
+						}
+						b.WriteString("  Average Score Comparison:\n  ")
+						b.WriteString(NAEPNationalComparison(
+							localLabel,
+							localScore.MeanScore,
+							nationalScoreData.MeanScore,
+							50,
+						))
+						b.WriteString("\n\n")
+					}
+				}
+			}
 		}
 
 		// Parent guidance note

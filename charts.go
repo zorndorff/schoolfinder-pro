@@ -786,3 +786,147 @@ func NAEPProficiencyLegend() string {
 
 	return result.String()
 }
+
+// NAEPNationalComparison creates a comparison visualization showing local vs national scores
+func NAEPNationalComparison(label string, localScore, nationalScore float64, width int) string {
+	var result strings.Builder
+
+	// Determine color based on performance relative to national
+	var localColor lipgloss.Color
+	var indicator string
+	diff := localScore - nationalScore
+
+	if diff >= 5 {
+		localColor = lipgloss.Color("46")  // Bright green - significantly above
+		indicator = "↑↑"
+	} else if diff >= 2 {
+		localColor = lipgloss.Color("82")  // Green - above
+		indicator = "↑"
+	} else if diff >= -2 {
+		localColor = lipgloss.Color("226") // Yellow - near national average
+		indicator = "≈"
+	} else if diff >= -5 {
+		localColor = lipgloss.Color("208") // Orange - below
+		indicator = "↓"
+	} else {
+		localColor = lipgloss.Color("196") // Red - significantly below
+		indicator = "↓↓"
+	}
+
+	nationalColor := lipgloss.Color("240") // Gray for national baseline
+
+	// Create bars (scale to 500 max for NAEP scores)
+	maxScale := 500.0
+	localWidth := int(float64(width) * (localScore / maxScale))
+	nationalWidth := int(float64(width) * (nationalScore / maxScale))
+
+	if localWidth > width {
+		localWidth = width
+	}
+	if nationalWidth > width {
+		nationalWidth = width
+	}
+
+	// Format label with padding
+	paddedLabel := fmt.Sprintf("%-12s", label)
+
+	// Local score bar
+	result.WriteString(fmt.Sprintf("%s %s %s %.0f %s\n",
+		paddedLabel,
+		lipgloss.NewStyle().Foreground(localColor).Render(strings.Repeat("█", localWidth)),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(strings.Repeat("░", width-localWidth)),
+		localScore,
+		lipgloss.NewStyle().Foreground(localColor).Bold(true).Render(indicator),
+	))
+
+	// National score bar
+	result.WriteString(fmt.Sprintf("%s %s %s %.0f %s",
+		lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("National Avg"),
+		lipgloss.NewStyle().Foreground(nationalColor).Render(strings.Repeat("█", nationalWidth)),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(strings.Repeat("░", width-nationalWidth)),
+		nationalScore,
+		lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("—"),
+	))
+
+	return result.String()
+}
+
+// NAEPComparisonIndicator shows a compact comparison of local vs national score
+func NAEPComparisonIndicator(localScore, nationalScore float64) string {
+	diff := localScore - nationalScore
+
+	var color lipgloss.Color
+	var symbol string
+	var description string
+
+	if diff >= 5 {
+		color = lipgloss.Color("46")
+		symbol = "↑↑"
+		description = fmt.Sprintf("+%.1f above national", diff)
+	} else if diff >= 2 {
+		color = lipgloss.Color("82")
+		symbol = "↑"
+		description = fmt.Sprintf("+%.1f above national", diff)
+	} else if diff >= -2 {
+		color = lipgloss.Color("226")
+		symbol = "≈"
+		description = "near national average"
+	} else if diff >= -5 {
+		color = lipgloss.Color("208")
+		symbol = "↓"
+		description = fmt.Sprintf("%.1f below national", diff)
+	} else {
+		color = lipgloss.Color("196")
+		symbol = "↓↓"
+		description = fmt.Sprintf("%.1f below national", diff)
+	}
+
+	return fmt.Sprintf("%s %s",
+		lipgloss.NewStyle().Foreground(color).Bold(true).Render(symbol),
+		lipgloss.NewStyle().Foreground(color).Render(description),
+	)
+}
+
+// NAEPNationalComparisonCard creates a summary card comparing local proficiency to national
+func NAEPNationalComparisonCard(subject string, grade int, localProficient, nationalProficient float64) string {
+	var result strings.Builder
+
+	diff := localProficient - nationalProficient
+
+	// Header
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33"))
+	result.WriteString(headerStyle.Render(fmt.Sprintf("Grade %d %s vs. National", grade, subject)))
+	result.WriteString("\n")
+
+	// Proficiency comparison
+	var performanceColor lipgloss.Color
+	var performanceLabel string
+
+	if diff >= 10 {
+		performanceColor = lipgloss.Color("46")
+		performanceLabel = "Well Above National"
+	} else if diff >= 5 {
+		performanceColor = lipgloss.Color("82")
+		performanceLabel = "Above National"
+	} else if diff >= -5 {
+		performanceColor = lipgloss.Color("226")
+		performanceLabel = "Near National Average"
+	} else if diff >= -10 {
+		performanceColor = lipgloss.Color("208")
+		performanceLabel = "Below National"
+	} else {
+		performanceColor = lipgloss.Color("196")
+		performanceLabel = "Well Below National"
+	}
+
+	result.WriteString(fmt.Sprintf("  Local Proficient+:    %s\n",
+		lipgloss.NewStyle().Foreground(performanceColor).Bold(true).Render(fmt.Sprintf("%.1f%%", localProficient))))
+	result.WriteString(fmt.Sprintf("  National Proficient+: %s\n",
+		lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(fmt.Sprintf("%.1f%%", nationalProficient))))
+	result.WriteString(fmt.Sprintf("  Difference:           %s\n",
+		lipgloss.NewStyle().Foreground(performanceColor).Render(fmt.Sprintf("%+.1f%%", diff))))
+	result.WriteString(fmt.Sprintf("  Performance:          %s",
+		lipgloss.NewStyle().Foreground(performanceColor).Bold(true).Render(performanceLabel)))
+
+	return result.String()
+}

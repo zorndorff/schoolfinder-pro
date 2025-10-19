@@ -17,6 +17,7 @@ type School struct {
 	StateName      string
 	City           string
 	District       string
+	DistrictID     sql.NullString // LEAID for NAEP district matching
 	SchoolYear     string
 	Teachers       sql.NullFloat64
 	Level          sql.NullString
@@ -227,6 +228,7 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 				d.STATENAME,
 				COALESCE(d.MCITY, ''),
 				COALESCE(d.LEA_NAME, ''),
+				d.LEAID,
 				d.SCHOOL_YEAR,
 				t.TEACHERS,
 				d.LEVEL,
@@ -267,6 +269,7 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 				d.STATENAME,
 				COALESCE(d.MCITY, ''),
 				COALESCE(d.LEA_NAME, ''),
+				d.LEAID,
 				d.SCHOOL_YEAR,
 				t.TEACHERS,
 				d.LEVEL,
@@ -305,6 +308,7 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 			&s.StateName,
 			&s.City,
 			&s.District,
+			&s.DistrictID,
 			&s.SchoolYear,
 			&s.Teachers,
 			&s.Level,
@@ -338,6 +342,7 @@ func (d *DB) GetSchoolByID(ncessch string) (*School, error) {
 			d.STATENAME,
 			COALESCE(d.MCITY, ''),
 			COALESCE(d.LEA_NAME, ''),
+			d.LEAID,
 			d.SCHOOL_YEAR,
 			t.TEACHERS,
 			d.LEVEL,
@@ -367,6 +372,7 @@ func (d *DB) GetSchoolByID(ncessch string) (*School, error) {
 		&s.StateName,
 		&s.City,
 		&s.District,
+		&s.DistrictID,
 		&s.SchoolYear,
 		&s.Teachers,
 		&s.Level,

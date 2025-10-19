@@ -12,6 +12,7 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -59,20 +60,25 @@ const (
 type model struct {
 	db            *DB
 	aiScraper     *AIScraperService
+	naepClient    *NAEPClient
 	currentView   view
 	searchInput   textinput.Model
 	saveInput     textinput.Model
+	viewport      viewport.Model
 	stateFilter   string
 	schools       []School
 	list          list.Model
 	selectedItem  *School
 	enhancedData  *EnhancedSchoolData
+	naepData      *NAEPData
 	width         int
 	height        int
 	err           error
 	loading       bool
 	scrapingAI    bool
+	loadingNAEP   bool
 	saveSuccess   string
+	viewportReady bool
 }
 
 type schoolItem struct {
@@ -115,10 +121,22 @@ type saveMsg struct {
 	err      error
 }
 
+type naepDataMsg struct {
+	data *NAEPData
+	err  error
+}
+
 func scrapeSchoolWebsite(scraper *AIScraperService, school *School) tea.Cmd {
 	return func() tea.Msg {
 		data, err := scraper.ScrapeSchoolWebsite(context.Background(), school)
 		return aiScrapeMsg{data: data, err: err}
+	}
+}
+
+func fetchNAEPData(client *NAEPClient, school *School) tea.Cmd {
+	return func() tea.Msg {
+		data, err := client.FetchNAEPData(school)
+		return naepDataMsg{data: data, err: err}
 	}
 }
 
@@ -174,7 +192,7 @@ func loadEnhancedDataFromCache(ncessch, cacheDir string) (*EnhancedSchoolData, e
 	return &enhanced, nil
 }
 
-func saveSchoolData(school *School, enhanced *EnhancedSchoolData, filename string) tea.Cmd {
+func saveSchoolData(school *School, enhanced *EnhancedSchoolData, naepData *NAEPData, filename string) tea.Cmd {
 	return func() tea.Msg {
 		// Create a combined data structure
 		data := map[string]interface{}{
@@ -183,6 +201,10 @@ func saveSchoolData(school *School, enhanced *EnhancedSchoolData, filename strin
 
 		if enhanced != nil {
 			data["ai_extracted"] = enhanced
+		}
+
+		if naepData != nil {
+			data["naep_data"] = naepData
 		}
 
 		jsonData, err := json.MarshalIndent(data, "", "  ")
@@ -205,7 +227,7 @@ func searchSchools(db *DB, query, state string) tea.Cmd {
 	}
 }
 
-func initialModel(db *DB, aiScraper *AIScraperService) model {
+func initialModel(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) model {
 	ti := textinput.New()
 	ti.Placeholder = "Search schools by name, city, district, address, or zip..."
 	ti.Focus()
@@ -229,12 +251,17 @@ func initialModel(db *DB, aiScraper *AIScraperService) model {
 		Foreground(lipgloss.Color("230")).
 		Padding(0, 1)
 
+	vp := viewport.New(80, 20)
+	vp.Style = lipgloss.NewStyle()
+
 	return model{
 		db:          db,
 		aiScraper:   aiScraper,
+		naepClient:  naepClient,
 		currentView: searchView,
 		searchInput: ti,
 		saveInput:   si,
+		viewport:    vp,
 		list:        l,
 		schools:     []School{},
 	}
@@ -252,6 +279,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.list.SetSize(msg.Width-4, msg.Height-10)
+
+		// Update viewport dimensions
+		// Reserve 6 lines: 1 for newline, 1 for scroll indicator, up to 3 for status messages, 1 for help text
+		m.viewport.Width = msg.Width
+		m.viewport.Height = msg.Height - 6
+		m.viewportReady = true
+
+		// Refresh viewport content if in detail view
+		if m.currentView == detailView {
+			m.updateDetailViewport()
+		}
+
 		return m, nil
 
 	case tea.KeyMsg:
@@ -261,6 +300,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleSavePromptKeys(msg)
 		}
 		return m.handleSearchViewKeys(msg)
+
+	case tea.MouseMsg:
+		if m.currentView == detailView {
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+		}
 
 	case searchMsg:
 		m.loading = false
@@ -285,6 +331,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.enhancedData = msg.data
 		m.err = nil
+		if m.currentView == detailView {
+			m.updateDetailViewport()
+		}
 		return m, nil
 
 	case saveMsg:
@@ -296,6 +345,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveSuccess = fmt.Sprintf("Saved to: %s", msg.filename)
 		m.saveInput.SetValue("")
 		m.currentView = detailView
+		return m, nil
+
+	case naepDataMsg:
+		m.loadingNAEP = false
+		if msg.err != nil {
+			m.err = fmt.Errorf("NAEP fetch failed: %w", msg.err)
+			return m, nil
+		}
+		m.naepData = msg.data
+		m.err = nil
+		if m.currentView == detailView {
+			m.updateDetailViewport()
+		}
 		return m, nil
 	}
 
@@ -327,6 +389,8 @@ func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if item, ok := m.list.SelectedItem().(schoolItem); ok {
 				m.selectedItem = &item.school
 				m.currentView = detailView
+				m.viewport.GotoTop() // Reset scroll position
+				m.updateDetailViewport() // Load content into viewport
 			}
 		}
 		return m, nil
@@ -370,13 +434,29 @@ func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleDetailViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg.Type {
-	case tea.KeyEsc, tea.KeyCtrlC:
+	case tea.KeyEsc:
+		if msg.Type == tea.KeyEsc {
+			m.currentView = searchView
+			m.selectedItem = nil
+			m.enhancedData = nil
+			m.naepData = nil
+			m.err = nil
+			m.saveSuccess = ""
+			m.viewport.GotoTop()
+			return m, nil
+		}
+
+	case tea.KeyCtrlC:
 		m.currentView = searchView
 		m.selectedItem = nil
 		m.enhancedData = nil
+		m.naepData = nil
 		m.err = nil
 		m.saveSuccess = ""
+		m.viewport.GotoTop()
 		return m, nil
 
 	case tea.KeyCtrlY:
@@ -414,7 +494,22 @@ func (m model) handleDetailViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 		return m, nil
+
+	case tea.KeyCtrlN:
+		// Fetch NAEP data
+		if m.selectedItem != nil && !m.loadingNAEP && m.naepClient != nil {
+			m.loadingNAEP = true
+			m.err = nil
+			return m, fetchNAEPData(m.naepClient, m.selectedItem)
+		}
+		return m, nil
+
+	// Scrolling keys
+	case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown, tea.KeyHome, tea.KeyEnd:
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	}
+
 	return m, nil
 }
 
@@ -431,7 +526,7 @@ func (m model) handleSavePromptKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("filename cannot be empty")
 			return m, nil
 		}
-		return m, saveSchoolData(m.selectedItem, m.enhancedData, filename)
+		return m, saveSchoolData(m.selectedItem, m.enhancedData, m.naepData, filename)
 	}
 
 	var cmd tea.Cmd
@@ -441,7 +536,7 @@ func (m model) handleSavePromptKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	if m.currentView == detailView {
-		return m.detailView()
+		return m.detailViewRender()
 	} else if m.currentView == savePromptView {
 		return m.savePromptView()
 	}
@@ -539,7 +634,7 @@ func (m model) searchViewRender() string {
 	return b.String()
 }
 
-func (m model) detailView() string {
+func (m model) detailViewContent() string {
 	if m.selectedItem == nil {
 		return "No school selected"
 	}
@@ -650,6 +745,141 @@ func (m model) detailView() string {
 		b.WriteString("\n")
 	}
 
+	// NAEP Data Section
+	if m.naepData != nil {
+		naepTitle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("33")).
+			Render("📊 Nation's Report Card (NAEP) Scores")
+
+		b.WriteString(naepTitle)
+		b.WriteString("\n\n")
+
+		// State-level scores
+		if len(m.naepData.StateScores) > 0 {
+			stateHeader := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("62")).
+				Render(fmt.Sprintf("State: %s", m.naepData.State))
+			b.WriteString(stateHeader)
+			b.WriteString("\n\n")
+
+			// Group scores by subject and grade
+			subjects := []string{"mathematics", "reading", "science"}
+			for _, subject := range subjects {
+				hasData := false
+				for _, score := range m.naepData.StateScores {
+					if score.Subject == subject && score.MeanScore > 0 {
+						hasData = true
+						break
+					}
+				}
+				if !hasData {
+					continue
+				}
+
+				subjectTitle := lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("226")).
+					Render(strings.Title(subject))
+				b.WriteString(subjectTitle)
+				b.WriteString("\n")
+
+				// Show scores for each grade
+				grades := []int{4, 8, 12}
+				for _, grade := range grades {
+					current, previous, change := m.naepData.GetScoreTrend(subject, grade, false)
+					if current == nil {
+						continue
+					}
+
+					label := fmt.Sprintf("  Grade %d (%d)", grade, current.Year)
+					scoreInfo := fmt.Sprintf("Score: %.0f", current.MeanScore)
+					if previous != nil {
+						scoreInfo += " " + NAEPTrendIndicator(change)
+					}
+					if current.AtProficient > 0 {
+						scoreInfo += fmt.Sprintf(" | %.0f%% Proficient+", current.AtProficient)
+					}
+
+					b.WriteString(fmt.Sprintf("%-25s %s\n", label, scoreInfo))
+
+					// Show score gauge
+					if current.MeanScore > 0 {
+						b.WriteString("    ")
+						b.WriteString(NAEPScoreGauge(current.MeanScore, 50))
+						b.WriteString("\n")
+					}
+				}
+				b.WriteString("\n")
+			}
+		}
+
+		// District-level scores (if available)
+		if len(m.naepData.DistrictScores) > 0 {
+			districtHeader := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("201")).
+				Render(fmt.Sprintf("District: %s", m.naepData.District))
+			b.WriteString(districtHeader)
+			b.WriteString("\n\n")
+
+			subjects := []string{"mathematics", "reading", "science"}
+			for _, subject := range subjects {
+				hasData := false
+				for _, score := range m.naepData.DistrictScores {
+					if score.Subject == subject && score.MeanScore > 0 {
+						hasData = true
+						break
+					}
+				}
+				if !hasData {
+					continue
+				}
+
+				subjectTitle := lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("226")).
+					Render(strings.Title(subject))
+				b.WriteString(subjectTitle)
+				b.WriteString("\n")
+
+				grades := []int{4, 8, 12}
+				for _, grade := range grades {
+					current, previous, change := m.naepData.GetScoreTrend(subject, grade, true)
+					if current == nil {
+						continue
+					}
+
+					label := fmt.Sprintf("  Grade %d (%d)", grade, current.Year)
+					scoreInfo := fmt.Sprintf("Score: %.0f", current.MeanScore)
+					if previous != nil {
+						scoreInfo += " " + NAEPTrendIndicator(change)
+					}
+					if current.AtProficient > 0 {
+						scoreInfo += fmt.Sprintf(" | %.0f%% Proficient+", current.AtProficient)
+					}
+
+					b.WriteString(fmt.Sprintf("%-25s %s\n", label, scoreInfo))
+
+					// Show score gauge
+					if current.MeanScore > 0 {
+						b.WriteString("    ")
+						b.WriteString(NAEPScoreGauge(current.MeanScore, 50))
+						b.WriteString("\n")
+					}
+				}
+				b.WriteString("\n")
+			}
+		}
+
+		cacheNote := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Render(fmt.Sprintf("Cached: %s (90-day TTL)", m.naepData.ExtractedAt.Format("2006-01-02")))
+		b.WriteString(cacheNote)
+		b.WriteString("\n\n")
+	}
+
 	// AI-Enhanced Data Section
 	if m.enhancedData != nil {
 		aiTitle := lipgloss.NewStyle().
@@ -682,13 +912,53 @@ func (m model) detailView() string {
 		b.WriteString("\n")
 	}
 
-	// Scraping status
+	return b.String()
+}
+
+func (m *model) updateDetailViewport() {
+	if !m.viewportReady || m.selectedItem == nil {
+		return
+	}
+	content := m.detailViewContent()
+	m.viewport.SetContent(content)
+}
+
+func (m model) detailViewRender() string {
+	if !m.viewportReady || m.selectedItem == nil {
+		return "Loading..."
+	}
+
+	var b strings.Builder
+
+	// Render viewport
+	b.WriteString(m.viewport.View())
+	b.WriteString("\n")
+
+	// Add scroll indicator if content is scrollable
+	if m.viewport.TotalLineCount() > m.viewport.Height {
+		scrollPercent := int(m.viewport.ScrollPercent() * 100)
+		scrollInfo := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Render(fmt.Sprintf("─── %d%% ───", scrollPercent))
+		b.WriteString(scrollInfo)
+		b.WriteString("\n")
+	}
+
+	// Status indicators (always visible)
+	statusStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("226")).
+		Bold(true)
+
+	// NAEP loading status
+	if m.loadingNAEP {
+		b.WriteString(statusStyle.Render("⏳ Fetching NAEP data..."))
+		b.WriteString("\n")
+	}
+
+	// AI scraping status
 	if m.scrapingAI {
-		scrapingStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("226")).
-			Bold(true)
-		b.WriteString(scrapingStyle.Render("⏳ Scraping website with AI..."))
-		b.WriteString("\n\n")
+		b.WriteString(statusStyle.Render("⏳ Scraping website with AI..."))
+		b.WriteString("\n")
 	}
 
 	// Save success message
@@ -697,27 +967,30 @@ func (m model) detailView() string {
 			Foreground(lipgloss.Color("82")).
 			Bold(true)
 		b.WriteString(successStyle.Render("✓ " + m.saveSuccess))
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
 
 	// Error display
 	if m.err != nil {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v\n", m.err)))
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+		b.WriteString(errorStyle.Render(fmt.Sprintf("❌ Error: %v", m.err)))
+		b.WriteString("\n")
 	}
 
-	// Help text
+	// Help text (always visible at bottom)
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		MarginTop(1)
+		Foreground(lipgloss.Color("241"))
 
 	var help string
+	s := m.selectedItem
 	if m.enhancedData != nil {
-		help = "Ctrl+W: Save | Ctrl+E: Edit | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
+		help = "↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | Ctrl+E: Edit | Ctrl+N: NAEP | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
 	} else if m.aiScraper != nil && s.Website.Valid && s.Website.String != "" {
-		help = "Ctrl+W: Save | Ctrl+A: AI Extract | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
+		help = "↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | Ctrl+A: AI Extract | Ctrl+N: NAEP | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
 	} else {
-		help = "Ctrl+W: Save | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
+		help = "↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | Ctrl+N: NAEP | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
 	}
 	b.WriteString(helpStyle.Render(help))
 
@@ -827,9 +1100,13 @@ func main() {
 		}
 	}
 
+	// Initialize NAEP client
+	naepClient := NewNAEPClient(".naep_cache")
+
 	p := tea.NewProgram(
-		initialModel(db, aiScraper),
+		initialModel(db, aiScraper, naepClient),
 		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(), // Enable mouse support
 	)
 
 	if _, err := p.Run(); err != nil {

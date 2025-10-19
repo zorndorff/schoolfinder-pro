@@ -459,3 +459,150 @@ gold oval
 |       134217728 |                  28 | Dallas NOTE: The 2017 assessed sample for Dallas in grade 4 reading was not representative of the target population for two major reporting groups: Hispanic and English language learner students. Assessed samples in Dallas for other grades and subjects in 2017 were unaffected. |
 |       268435456 |                  29 | Some respondents did not receive this question based on their response to a previous question in the survey, and those respondents are included in the "missing" category.                                                                                                            |
 
+[Back to Top](#top)
+
+- Download Data Tables
+- Customize Data Tables
+
+Download data summarizing:
+
+- participation rates
+- inclusion rates and other information about students with disabilities (SD) and English learners (EL)
+
+Subject
+
+Mathematics (National)
+
+Arts
+
+Civics
+
+Geography
+
+Long-Term Trend Reading &amp; Mathematics at Age 9
+
+Long-Term Trend Reading &amp; Mathematics at Age 13
+
+Mathematics (National)
+
+Mathematics {State/District} --&gt; Mathematics (Grade 12)
+
+Reading (National)
+
+Reading (State/District) --&gt; Reading (Grade 12)
+
+Science
+
+Technology &amp; Engineering Literacy
+
+U.S. History
+
+Vocabulary
+
+[excel file pdf file](#)
+
+Generate custom tables by selecting criteria below:
+
+Jurisdiction
+
+National
+
+Select a Jurisdiction
+
+National
+
+States
+
+Districts
+
+Grade
+
+Grade 4
+
+Select a Grade
+
+Grade 4
+
+Grade 8
+
+Grade 12
+
+Subject
+
+Mathematics
+
+Select a Subject
+
+Civics
+
+Economics
+
+Geography
+
+Mathematics
+
+Music
+
+Reading
+
+Science
+
+Technology &amp; Engineering Literacy
+
+U.S. History
+
+Visual Arts
+
+Vocabulary
+
+Writing
+
+Statistic
+
+Average Score
+
+Average Score
+
+Percentages
+
+Achievement Level
+
+Percentiles
+
+Variable
+
+Overall
+
+Overall
+
+Gender
+
+Race/Ethnicity
+
+Region
+
+Type of School
+
+Charter Schools
+
+NSLP Eligibility
+
+Parental Education
+
+School Location
+
+Students with Disabilities
+
+English Learners
+
+[create table](#)
+
+Related Links
+
+- [About The Nation's Report Card](/about.aspx)
+- [About National Assessment of Educational Progress (NAEP)](http://nces.ed.gov/nationsreportcard/about/)
+- [Contacts](/contacts.aspx)
+- [FAQs](/faq.aspx)
+- [Glossary](/glossary.aspx?ispopup=false)
+
+FOLLOW US

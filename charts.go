@@ -448,3 +448,125 @@ func DistributionBar(segments []struct {
 
 	return bar.String()
 }
+
+// NAEPAchievementBar shows NAEP achievement level distribution
+func NAEPAchievementBar(label string, belowBasic, atBasic, atProficient, atAdvanced float64, width int) string {
+	// Calculate percentages (should sum to ~100%)
+	total := belowBasic + atBasic + atProficient + atAdvanced
+
+	// If no data, return empty
+	if total == 0 {
+		return label + " " + strings.Repeat("░", width) + " (No data)"
+	}
+
+	// Calculate widths for each segment
+	belowBasicWidth := int(math.Round((belowBasic / 100.0) * float64(width)))
+	atBasicWidth := int(math.Round((atBasic / 100.0) * float64(width)))
+	atProficientWidth := int(math.Round((atProficient / 100.0) * float64(width)))
+	atAdvancedWidth := width - belowBasicWidth - atBasicWidth - atProficientWidth // Ensure exact width
+
+	// Styles for each level
+	belowBasicStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))   // Red
+	atBasicStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))       // Orange
+	atProficientStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))  // Yellow
+	atAdvancedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))     // Green
+
+	bar := belowBasicStyle.Render(strings.Repeat("█", belowBasicWidth)) +
+		atBasicStyle.Render(strings.Repeat("█", atBasicWidth)) +
+		atProficientStyle.Render(strings.Repeat("█", atProficientWidth)) +
+		atAdvancedStyle.Render(strings.Repeat("█", atAdvancedWidth))
+
+	// Show proficient+ percentage as key metric
+	proficientPlus := atProficient + atAdvanced
+
+	return fmt.Sprintf("%-30s %s (%.0f%% Prof+)", label, bar, proficientPlus)
+}
+
+// NAEPTrendIndicator shows score change over time with arrow
+func NAEPTrendIndicator(change float64) string {
+	var arrow string
+	var color lipgloss.Color
+
+	if change > 0.5 {
+		arrow = "↑"
+		color = lipgloss.Color("82") // Green for improvement
+	} else if change < -0.5 {
+		arrow = "↓"
+		color = lipgloss.Color("196") // Red for decline
+	} else {
+		arrow = "→"
+		color = lipgloss.Color("240") // Gray for no change
+	}
+
+	style := lipgloss.NewStyle().Foreground(color).Bold(true)
+
+	if change > 0 {
+		return style.Render(fmt.Sprintf("%s +%.0f", arrow, change))
+	} else if change < 0 {
+		return style.Render(fmt.Sprintf("%s %.0f", arrow, change))
+	} else {
+		return style.Render(fmt.Sprintf("%s No change", arrow))
+	}
+}
+
+// NAEPScoreGauge shows NAEP score on typical scale (0-500)
+func NAEPScoreGauge(score float64, width int) string {
+	// NAEP scores typically range from ~100-350
+	// We'll use 0-500 as the full scale
+	minScore := 0.0
+	maxScore := 500.0
+
+	if score < minScore {
+		score = minScore
+	}
+	if score > maxScore {
+		score = maxScore
+	}
+
+	percentage := (score - minScore) / (maxScore - minScore)
+	position := int(percentage * float64(width))
+
+	if position < 0 {
+		position = 0
+	}
+	if position >= width {
+		position = width - 1
+	}
+
+	// Build gauge
+	gauge := make([]rune, width)
+	for i := range gauge {
+		if i == position {
+			gauge[i] = '◆'
+		} else {
+			gauge[i] = '─'
+		}
+	}
+
+	// Add markers for common benchmarks
+	basicPos := int(0.4 * float64(width))    // ~200 score
+	profPos := int(0.6 * float64(width))     // ~300 score
+
+	if basicPos >= 0 && basicPos < width && gauge[basicPos] != '◆' {
+		gauge[basicPos] = '┆'
+	}
+	if profPos >= 0 && profPos < width && gauge[profPos] != '◆' {
+		gauge[profPos] = '┆'
+	}
+
+	// Color based on score level
+	var color lipgloss.Color
+	switch {
+	case score >= 300:
+		color = lipgloss.Color("82") // Green - Proficient
+	case score >= 250:
+		color = lipgloss.Color("226") // Yellow - Basic
+	case score >= 200:
+		color = lipgloss.Color("214") // Orange - Approaching Basic
+	default:
+		color = lipgloss.Color("196") // Red - Below Basic
+	}
+
+	style := lipgloss.NewStyle().Foreground(color)
+	return style.Render(string(gauge))
+}

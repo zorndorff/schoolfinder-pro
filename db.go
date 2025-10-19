@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -52,6 +51,9 @@ func NewDB(dataDir string) (*DB, error) {
 	// Open the database file
 	db, err := sql.Open("duckdb", dbPath)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to open DuckDB database", "error", err, "db_path", dbPath)
+		}
 		return nil, fmt.Errorf("failed to open duckdb: %w", err)
 	}
 
@@ -65,9 +67,15 @@ func NewDB(dataDir string) (*DB, error) {
 		fmt.Println("📊 Initializing database from CSV files...")
 		if err := d.initializeDatabase(); err != nil {
 			db.Close()
+			if logger != nil {
+				logger.Error("Database initialization failed", "error", err, "data_dir", dataDir)
+			}
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
 		fmt.Println("✅ Database initialized successfully!\n")
+		if logger != nil {
+			logger.Info("Database initialized successfully", "db_path", dbPath)
+		}
 	} else {
 		// For existing databases, ensure FTS extension is loaded
 		_, err := d.conn.Exec("LOAD fts;")
@@ -75,6 +83,9 @@ func NewDB(dataDir string) (*DB, error) {
 			// Try installing first if not available
 			_, err = d.conn.Exec("INSTALL fts; LOAD fts;")
 			if err != nil {
+				if logger != nil {
+					logger.Error("Failed to load FTS extension", "error", err, "db_path", dbPath)
+				}
 				return nil, fmt.Errorf("failed to load FTS extension: %w", err)
 			}
 		}
@@ -296,6 +307,9 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 
 	rows, err := d.conn.Query(sqlQuery, args...)
 	if err != nil {
+		if logger != nil {
+			logger.Error("School search query failed", "error", err, "query", query, "state", state, "limit", limit)
+		}
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
 	defer rows.Close()
@@ -326,12 +340,22 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 			&s.Enrollment,
 		)
 		if err != nil {
+			if logger != nil {
+				logger.Error("Failed to scan school row", "error", err, "query", query, "state", state)
+			}
 			return nil, fmt.Errorf("scan failed: %w", err)
 		}
 		schools = append(schools, s)
 	}
 
-	return schools, rows.Err()
+	if err := rows.Err(); err != nil {
+		if logger != nil {
+			logger.Error("Row iteration error in search", "error", err, "query", query, "state", state, "results_count", len(schools))
+		}
+		return nil, err
+	}
+
+	return schools, nil
 }
 
 func (d *DB) GetSchoolByID(ncessch string) (*School, error) {
@@ -390,6 +414,9 @@ func (d *DB) GetSchoolByID(ncessch string) (*School, error) {
 		&s.Enrollment,
 	)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to get school by ID", "error", err, "ncessch", ncessch)
+		}
 		return nil, fmt.Errorf("school not found: %w", err)
 	}
 
@@ -405,6 +432,9 @@ func (d *DB) GetStates() ([]string, error) {
 
 	rows, err := d.conn.Query(sqlQuery)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to query states", "error", err)
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -413,12 +443,22 @@ func (d *DB) GetStates() ([]string, error) {
 	for rows.Next() {
 		var state string
 		if err := rows.Scan(&state); err != nil {
+			if logger != nil {
+				logger.Error("Failed to scan state row", "error", err)
+			}
 			return nil, err
 		}
 		states = append(states, state)
 	}
 
-	return states, rows.Err()
+	if err := rows.Err(); err != nil {
+		if logger != nil {
+			logger.Error("Row iteration error in GetStates", "error", err, "states_count", len(states))
+		}
+		return nil, err
+	}
+
+	return states, nil
 }
 
 func (s *School) DisplayName() string {

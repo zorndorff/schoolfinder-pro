@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -83,6 +84,9 @@ type AIScraperService struct {
 // NewAIScraperService creates a new AI scraper service
 func NewAIScraperService(apiKey, cacheDir string) (*AIScraperService, error) {
 	if apiKey == "" {
+		if logger != nil {
+			logger.Error("AI scraper initialization failed: missing API key")
+		}
 		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
 	}
 
@@ -94,7 +98,14 @@ func NewAIScraperService(apiKey, cacheDir string) (*AIScraperService, error) {
 
 	// Create cache directory
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		if logger != nil {
+			logger.Error("Failed to create AI scraper cache directory", "error", err, "cache_dir", cacheDir)
+		}
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("AI scraper service initialized", "cache_dir", cacheDir)
 	}
 
 	return &AIScraperService{
@@ -110,6 +121,9 @@ func NewAIScraperService(apiKey, cacheDir string) (*AIScraperService, error) {
 func (s *AIScraperService) FetchWebsiteContent(url string) (string, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to create HTTP request for website fetch", "error", err, "url", url)
+		}
 		return "", err
 	}
 
@@ -117,16 +131,25 @@ func (s *AIScraperService) FetchWebsiteContent(url string) (string, error) {
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		if logger != nil {
+			logger.Error("HTTP request failed for website fetch", "error", err, "url", url)
+		}
 		return "", fmt.Errorf("failed to fetch URL: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if logger != nil {
+			logger.Error("HTTP request returned non-OK status", "status_code", resp.StatusCode, "url", url)
+		}
 		return "", fmt.Errorf("HTTP error: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to read response body", "error", err, "url", url)
+		}
 		return "", err
 	}
 
@@ -218,11 +241,17 @@ If you cannot find staff contact information after thorough searching, explicitl
 	// Call the Messages API
 	message, err := s.client.Messages.New(ctx, params)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Claude API call failed", "error", err, "school_name", school.Name, "ncessch", school.NCESSCH, "model", "haiku-4.5")
+		}
 		return nil, fmt.Errorf("Claude API error: %w", err)
 	}
 
 	// Extract the response text from all content blocks
 	if len(message.Content) == 0 {
+		if logger != nil {
+			logger.Error("Empty response from Claude API", "school_name", school.Name, "ncessch", school.NCESSCH)
+		}
 		return nil, fmt.Errorf("empty response from Claude")
 	}
 
@@ -234,7 +263,14 @@ If you cannot find staff contact information after thorough searching, explicitl
 	}
 
 	if responseText == "" {
+		if logger != nil {
+			logger.Error("No text content in Claude API response", "school_name", school.Name, "ncessch", school.NCESSCH, "content_blocks", len(message.Content))
+		}
 		return nil, fmt.Errorf("no text response from Claude")
+	}
+
+	if logger != nil {
+		logger.Info("Successfully extracted school data with Claude", "school_name", school.Name, "ncessch", school.NCESSCH, slog.Int("response_length", len(responseText)))
 	}
 
 	// Store the markdown content directly
@@ -249,6 +285,9 @@ If you cannot find staff contact information after thorough searching, explicitl
 func (s *AIScraperService) ScrapeSchoolWebsite(ctx context.Context, school *School) (*EnhancedSchoolData, error) {
 	// Check if website is available
 	if !school.Website.Valid || school.Website.String == "" {
+		if logger != nil {
+			logger.Warn("Cannot scrape school: no website available", "school_name", school.Name, "ncessch", school.NCESSCH)
+		}
 		return nil, fmt.Errorf("no website available for this school")
 	}
 
@@ -262,13 +301,23 @@ func (s *AIScraperService) ScrapeSchoolWebsite(ctx context.Context, school *Scho
 	if err == nil && cached != nil {
 		// Return cached data if less than 30 days old
 		if time.Since(cached.ExtractedAt) < 30*24*time.Hour {
+			if logger != nil {
+				logger.Info("Returning cached school data", "school_name", school.Name, "ncessch", school.NCESSCH, "cache_age_days", int(time.Since(cached.ExtractedAt).Hours()/24))
+			}
 			return cached, nil
 		}
+	}
+
+	if logger != nil {
+		logger.Info("Scraping school website", "school_name", school.Name, "ncessch", school.NCESSCH, "website", websiteURL)
 	}
 
 	// Extract data using Claude 4.5 Haiku with web search
 	data, err := s.ExtractSchoolDataWithWebSearch(ctx, school)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to extract school data", "error", err, "school_name", school.Name, "ncessch", school.NCESSCH, "website", websiteURL)
+		}
 		return nil, err
 	}
 
@@ -281,7 +330,9 @@ func (s *AIScraperService) ScrapeSchoolWebsite(ctx context.Context, school *Scho
 	// Save to cache
 	if err := s.saveToCache(data); err != nil {
 		// Don't fail if cache save fails, just log
-		fmt.Fprintf(os.Stderr, "Warning: failed to save to cache: %v\n", err)
+		if logger != nil {
+			logger.Warn("Failed to save school data to cache", "error", err, "school_name", school.Name, "ncessch", school.NCESSCH)
+		}
 	}
 
 	return data, nil
@@ -293,11 +344,18 @@ func (s *AIScraperService) loadFromCache(ncessch string) (*EnhancedSchoolData, e
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
+		// Don't log "file not found" errors as they're expected for uncached schools
+		if !os.IsNotExist(err) && logger != nil {
+			logger.Warn("Failed to read cache file", "error", err, "ncessch", ncessch, "filename", filename)
+		}
 		return nil, err
 	}
 
 	var enhanced EnhancedSchoolData
 	if err := json.Unmarshal(data, &enhanced); err != nil {
+		if logger != nil {
+			logger.Error("Failed to unmarshal cached school data", "error", err, "ncessch", ncessch, "filename", filename)
+		}
 		return nil, err
 	}
 
@@ -310,10 +368,24 @@ func (s *AIScraperService) saveToCache(data *EnhancedSchoolData) error {
 
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to marshal school data for caching", "error", err, "ncessch", data.NCESSCH, "school_name", data.SchoolName)
+		}
 		return err
 	}
 
-	return os.WriteFile(filename, jsonData, 0644)
+	if err := os.WriteFile(filename, jsonData, 0644); err != nil {
+		if logger != nil {
+			logger.Error("Failed to write cache file", "error", err, "ncessch", data.NCESSCH, "filename", filename)
+		}
+		return err
+	}
+
+	if logger != nil {
+		logger.Info("Successfully cached school data", "ncessch", data.NCESSCH, "school_name", data.SchoolName, "filename", filename)
+	}
+
+	return nil
 }
 
 // FormatEnhancedData formats the enhanced data for display

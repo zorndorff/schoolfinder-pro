@@ -175,6 +175,8 @@ func (c *NAEPClient) FetchNAEPData(school *School) (*NAEPData, error) {
 }
 
 // determineGrades determines which NAEP grades (4, 8, 12) apply to this school
+// Note: Grade 12 is excluded because NAEP only assesses grade 12 at the national level,
+// not at state or district levels. State-level assessments are only available for grades 4 and 8.
 func (c *NAEPClient) determineGrades(school *School) []int {
 	var grades []int
 
@@ -202,10 +204,10 @@ func (c *NAEPClient) determineGrades(school *School) []int {
 		grades = append(grades, 8)
 	}
 
-	// Check if school serves grade 12
-	if lowNum <= 12 && highNum >= 12 {
-		grades = append(grades, 12)
-	}
+	// NOTE: Grade 12 is excluded because NAEP grade 12 assessments are only
+	// available at the national level, not for individual states or districts.
+	// Including grade 12 would cause API 400 errors for state/district queries.
+	// If needed in the future, grade 12 data would require separate national-level queries.
 
 	return grades
 }

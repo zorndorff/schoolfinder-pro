@@ -166,7 +166,7 @@ func fetchNAEPData(client *NAEPClient, school *School) tea.Cmd {
 	}
 }
 
-func openInEditor(data *EnhancedSchoolData, cacheDir string) tea.Cmd {
+func openInEditor(data *EnhancedSchoolData, db *DB) tea.Cmd {
 	// Get editor from environment
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
@@ -183,28 +183,55 @@ func openInEditor(data *EnhancedSchoolData, cacheDir string) tea.Cmd {
 		}
 	}
 
-	// Get the file path
-	filename := filepath.Join(cacheDir, data.NCESSCH+".json")
+	// Create a temporary file with the cached data
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("school_%s_*.json", data.NCESSCH))
+	if err != nil {
+		return func() tea.Msg {
+			return aiScrapeMsg{err: fmt.Errorf("failed to create temp file: %w", err)}
+		}
+	}
+
+	// Write current data to temp file
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return func() tea.Msg {
+			return aiScrapeMsg{err: fmt.Errorf("failed to marshal data: %w", err)}
+		}
+	}
+
+	if _, err := tmpFile.Write(jsonData); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return func() tea.Msg {
+			return aiScrapeMsg{err: fmt.Errorf("failed to write temp file: %w", err)}
+		}
+	}
+	tmpFile.Close()
+
+	tmpFilename := tmpFile.Name()
 	ncessch := data.NCESSCH
 
-	c := exec.Command(editor, filename)
+	c := exec.Command(editor, tmpFilename)
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 
 	return tea.ExecProcess(c, func(err error) tea.Msg {
+		defer os.Remove(tmpFilename) // Clean up temp file
+
 		if err != nil {
 			return aiScrapeMsg{err: fmt.Errorf("editor error: %w", err)}
 		}
-		// Reload the data after editor closes
-		reloaded, loadErr := loadEnhancedDataFromCache(ncessch, cacheDir)
+
+		// Reload the edited data and save to database
+		reloaded, loadErr := loadAndSaveEditedData(ncessch, tmpFilename, db)
 		return aiScrapeMsg{data: reloaded, err: loadErr}
 	})
 }
 
-func loadEnhancedDataFromCache(ncessch, cacheDir string) (*EnhancedSchoolData, error) {
-	filename := filepath.Join(cacheDir, ncessch+".json")
-
+func loadAndSaveEditedData(ncessch, filename string, db *DB) (*EnhancedSchoolData, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
@@ -213,6 +240,50 @@ func loadEnhancedDataFromCache(ncessch, cacheDir string) (*EnhancedSchoolData, e
 	var enhanced EnhancedSchoolData
 	if err := json.Unmarshal(data, &enhanced); err != nil {
 		return nil, err
+	}
+
+	// Save the edited data back to the database
+	if db != nil {
+		// Prepare legacy data
+		legacyData := map[string]interface{}{
+			"principal":         enhanced.Principal,
+			"vice_principals":   enhanced.VicePrincipals,
+			"mascot":            enhanced.Mascot,
+			"school_colors":     enhanced.SchoolColors,
+			"founded":           enhanced.Founded,
+			"staff_contacts":    enhanced.StaffContacts,
+			"main_office_email": enhanced.MainOfficeEmail,
+			"main_office_phone": enhanced.MainOfficePhone,
+			"ap_courses":        enhanced.APCourses,
+			"honors":            enhanced.Honors,
+			"special_programs":  enhanced.SpecialPrograms,
+			"languages":         enhanced.Languages,
+			"sports":            enhanced.Sports,
+			"clubs":             enhanced.Clubs,
+			"arts":              enhanced.Arts,
+			"facilities":        enhanced.Facilities,
+			"bell_schedule":     enhanced.BellSchedule,
+			"school_hours":      enhanced.SchoolHours,
+			"achievements":      enhanced.Achievements,
+			"accreditations":    enhanced.Accreditations,
+			"mission":           enhanced.Mission,
+			"notes":             enhanced.Notes,
+		}
+
+		legacyJSON, _ := json.Marshal(legacyData)
+
+		if err := db.SaveAIScraperCache(
+			enhanced.NCESSCH,
+			enhanced.SchoolName,
+			enhanced.SourceURL,
+			enhanced.MarkdownContent,
+			legacyJSON,
+			enhanced.ExtractedAt,
+		); err != nil {
+			if logger != nil {
+				logger.Warn("Failed to save edited data to database", "error", err, "ncessch", ncessch)
+			}
+		}
 	}
 
 	return &enhanced, nil
@@ -539,8 +610,8 @@ func (m model) handleDetailViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyCtrlE:
 		// Open extracted data in editor
-		if m.enhancedData != nil && m.aiScraper != nil {
-			return m, openInEditor(m.enhancedData, m.aiScraper.cacheDir)
+		if m.enhancedData != nil && m.db != nil {
+			return m, openInEditor(m.enhancedData, m.db)
 		}
 		return m, nil
 
@@ -813,132 +884,141 @@ func (m model) detailViewContent() string {
 		naepTitle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("33")).
-			Render("📊 Nation's Report Card (NAEP) Scores")
+			Render("📊 Nation's Report Card (NAEP) Assessment Results")
 
 		b.WriteString(naepTitle)
+		b.WriteString("\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("National standardized test measuring student achievement"))
 		b.WriteString("\n\n")
 
-		// State-level scores
-		if len(m.naepData.StateScores) > 0 {
-			stateHeader := lipgloss.NewStyle().
+		// Determine which data to show (district if available, otherwise state)
+		useDistrict := len(m.naepData.DistrictScores) > 0
+		jurisdictionName := m.naepData.State
+		if useDistrict {
+			jurisdictionName = m.naepData.District
+		}
+
+		jurisdictionHeader := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("62"))
+
+		if useDistrict {
+			b.WriteString(jurisdictionHeader.Render(fmt.Sprintf("District: %s (more specific than state average)", jurisdictionName)))
+		} else {
+			b.WriteString(jurisdictionHeader.Render(fmt.Sprintf("State: %s", jurisdictionName)))
+		}
+		b.WriteString("\n\n")
+
+		// Show achievement level legend
+		b.WriteString(NAEPProficiencyLegend())
+		b.WriteString("\n\n")
+
+		// Collect grades that have data
+		grades := []int{4, 8}
+		availableGrades := []int{}
+		for _, grade := range grades {
+			// Check if any subject has data for this grade
+			hasData := false
+			for _, subject := range []string{"mathematics", "reading", "science"} {
+				if m.naepData.GetMostRecentScore(subject, grade, useDistrict) != nil {
+					hasData = true
+					break
+				}
+			}
+			if hasData {
+				availableGrades = append(availableGrades, grade)
+			}
+		}
+
+		// For each available grade, show comprehensive visualizations
+		for _, grade := range availableGrades {
+			gradeHeader := lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("62")).
-				Render(fmt.Sprintf("State: %s", m.naepData.State))
-			b.WriteString(stateHeader)
+				Foreground(lipgloss.Color("226")).
+				Render(fmt.Sprintf("═══ Grade %d Assessment Results ═══", grade))
+			b.WriteString(gradeHeader)
 			b.WriteString("\n\n")
 
-			// Group scores by subject and grade
+			// Get subject scores for comparison
+			subjectScores := m.naepData.GetSubjectScoreSummary(grade, useDistrict)
+
+			// Subject comparison chart
+			if len(subjectScores) > 0 {
+				b.WriteString(NAEPSubjectComparison(
+					subjectScores["mathematics"],
+					subjectScores["reading"],
+					subjectScores["science"],
+					60,
+				))
+				b.WriteString("\n")
+			}
+
+			// Detailed subject breakdowns
 			subjects := []string{"mathematics", "reading", "science"}
 			for _, subject := range subjects {
-				hasData := false
-				for _, score := range m.naepData.StateScores {
-					if score.Subject == subject && score.MeanScore > 0 {
-						hasData = true
-						break
-					}
-				}
-				if !hasData {
+				current := m.naepData.GetMostRecentScore(subject, grade, useDistrict)
+				if current == nil {
 					continue
 				}
 
-				subjectTitle := lipgloss.NewStyle().
-					Bold(true).
-					Foreground(lipgloss.Color("226")).
-					Render(strings.Title(subject))
-				b.WriteString(subjectTitle)
+				// Parent-friendly summary card
+				_, previous, change := m.naepData.GetScoreTrend(subject, grade, useDistrict)
+				trendStr := ""
+				if previous != nil {
+					trendStr = NAEPTrendIndicator(change)
+				}
+
+				b.WriteString(NAEPParentSummaryCard(subject, grade, current.AtProficient, current.MeanScore, trendStr))
 				b.WriteString("\n")
 
-				// Show scores for each grade
-				grades := []int{4, 8, 12}
-				for _, grade := range grades {
-					current, previous, change := m.naepData.GetScoreTrend(subject, grade, false)
-					if current == nil {
-						continue
-					}
+				// Achievement level breakdown
+				belowBasic, basic, proficient, advanced := m.naepData.GetAchievementLevels(subject, grade, useDistrict)
+				b.WriteString("  ")
+				b.WriteString(NAEPProficiencyBreakdown(
+					"Distribution:",
+					belowBasic,
+					basic,
+					proficient,
+					advanced,
+					50,
+				))
+				b.WriteString("\n")
 
-					label := fmt.Sprintf("  Grade %d (%d)", grade, current.Year)
-					scoreInfo := fmt.Sprintf("Score: %.0f", current.MeanScore)
-					if previous != nil {
-						scoreInfo += " " + NAEPTrendIndicator(change)
+				// Multi-year trend chart
+				allScores := m.naepData.GetAllScoresForSubjectGrade(subject, grade, useDistrict)
+				if len(allScores) > 1 {
+					var scores []float64
+					var years []int
+					for _, score := range allScores {
+						scores = append(scores, score.MeanScore)
+						years = append(years, score.Year)
 					}
-					if current.AtProficient > 0 {
-						scoreInfo += fmt.Sprintf(" | %.0f%% Proficient+", current.AtProficient)
-					}
-
-					b.WriteString(fmt.Sprintf("%-25s %s\n", label, scoreInfo))
-
-					// Show score gauge
-					if current.MeanScore > 0 {
-						b.WriteString("    ")
-						b.WriteString(NAEPScoreGauge(current.MeanScore, 50))
-						b.WriteString("\n")
-					}
+					b.WriteString("  Trend:        ")
+					b.WriteString(NAEPTrendChart(scores, years, 30))
+					b.WriteString("\n")
 				}
+
 				b.WriteString("\n")
 			}
 		}
 
-		// District-level scores (if available)
-		if len(m.naepData.DistrictScores) > 0 {
-			districtHeader := lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("201")).
-				Render(fmt.Sprintf("District: %s", m.naepData.District))
-			b.WriteString(districtHeader)
-			b.WriteString("\n\n")
+		// Parent guidance note
+		noteStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Italic(true)
 
-			subjects := []string{"mathematics", "reading", "science"}
-			for _, subject := range subjects {
-				hasData := false
-				for _, score := range m.naepData.DistrictScores {
-					if score.Subject == subject && score.MeanScore > 0 {
-						hasData = true
-						break
-					}
-				}
-				if !hasData {
-					continue
-				}
-
-				subjectTitle := lipgloss.NewStyle().
-					Bold(true).
-					Foreground(lipgloss.Color("226")).
-					Render(strings.Title(subject))
-				b.WriteString(subjectTitle)
-				b.WriteString("\n")
-
-				grades := []int{4, 8, 12}
-				for _, grade := range grades {
-					current, previous, change := m.naepData.GetScoreTrend(subject, grade, true)
-					if current == nil {
-						continue
-					}
-
-					label := fmt.Sprintf("  Grade %d (%d)", grade, current.Year)
-					scoreInfo := fmt.Sprintf("Score: %.0f", current.MeanScore)
-					if previous != nil {
-						scoreInfo += " " + NAEPTrendIndicator(change)
-					}
-					if current.AtProficient > 0 {
-						scoreInfo += fmt.Sprintf(" | %.0f%% Proficient+", current.AtProficient)
-					}
-
-					b.WriteString(fmt.Sprintf("%-25s %s\n", label, scoreInfo))
-
-					// Show score gauge
-					if current.MeanScore > 0 {
-						b.WriteString("    ")
-						b.WriteString(NAEPScoreGauge(current.MeanScore, 50))
-						b.WriteString("\n")
-					}
-				}
-				b.WriteString("\n")
-			}
-		}
+		b.WriteString(noteStyle.Render("💡 What this means for parents:"))
+		b.WriteString("\n")
+		b.WriteString(noteStyle.Render("  • Proficient/Advanced: Students demonstrate solid academic performance"))
+		b.WriteString("\n")
+		b.WriteString(noteStyle.Render("  • Strong trending: Scores are improving over time (↑)"))
+		b.WriteString("\n")
+		b.WriteString(noteStyle.Render("  • These are state/district averages - individual schools may vary"))
+		b.WriteString("\n\n")
 
 		cacheNote := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
-			Render(fmt.Sprintf("Cached: %s (90-day TTL)", m.naepData.ExtractedAt.Format("2006-01-02")))
+			Render(fmt.Sprintf("Data cached: %s (90-day cache)", m.naepData.ExtractedAt.Format("2006-01-02")))
 		b.WriteString(cacheNote)
 		b.WriteString("\n\n")
 	}
@@ -1181,7 +1261,7 @@ func main() {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	var aiScraper *AIScraperService
 	if apiKey != "" {
-		aiScraper, err = NewAIScraperService(apiKey, ".school_cache")
+		aiScraper, err = NewAIScraperService(apiKey, db)
 		if err != nil {
 			if logger != nil {
 				logger.Warn("AI scraper initialization failed", "error", err)
@@ -1192,7 +1272,7 @@ func main() {
 	}
 
 	// Initialize NAEP client
-	naepClient := NewNAEPClient(".naep_cache")
+	naepClient := NewNAEPClient(db)
 
 	// Print configuration info
 	fmt.Println("\n📊 School Finder Configuration:")

@@ -570,3 +570,219 @@ func NAEPScoreGauge(score float64, width int) string {
 	style := lipgloss.NewStyle().Foreground(color)
 	return style.Render(string(gauge))
 }
+
+// NAEPProficiencyBreakdown creates a stacked bar showing achievement level distribution
+func NAEPProficiencyBreakdown(label string, belowBasic, basic, proficient, advanced float64, width int) string {
+	total := belowBasic + basic + proficient + advanced
+	if total == 0 {
+		return label + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(strings.Repeat("░", width)) + " No data"
+	}
+
+	// Calculate widths for each segment
+	belowBasicWidth := int((belowBasic / total) * float64(width))
+	basicWidth := int((basic / total) * float64(width))
+	proficientWidth := int((proficient / total) * float64(width))
+	advancedWidth := width - belowBasicWidth - basicWidth - proficientWidth // Remaining goes to advanced
+
+	// Ensure at least 1 char for non-zero values
+	if belowBasic > 0 && belowBasicWidth == 0 {
+		belowBasicWidth = 1
+	}
+	if basic > 0 && basicWidth == 0 {
+		basicWidth = 1
+	}
+	if proficient > 0 && proficientWidth == 0 {
+		proficientWidth = 1
+	}
+	if advanced > 0 && advancedWidth == 0 {
+		advancedWidth = 1
+	}
+
+	// Build the bar
+	var bar strings.Builder
+
+	// Below Basic (red)
+	if belowBasicWidth > 0 {
+		bar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(strings.Repeat("█", belowBasicWidth)))
+	}
+
+	// Basic (yellow)
+	if basicWidth > 0 {
+		bar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Render(strings.Repeat("█", basicWidth)))
+	}
+
+	// Proficient (light green)
+	if proficientWidth > 0 {
+		bar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Render(strings.Repeat("█", proficientWidth)))
+	}
+
+	// Advanced (bright green)
+	if advancedWidth > 0 {
+		bar.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Render(strings.Repeat("█", advancedWidth)))
+	}
+
+	// Add percentages
+	proficientPlus := proficient + advanced
+	return fmt.Sprintf("%s %s %.0f%% Prof+", label, bar.String(), proficientPlus)
+}
+
+// NAEPTrendChart creates a mini sparkline showing score trends over multiple years
+func NAEPTrendChart(scores []float64, years []int, width int) string {
+	if len(scores) == 0 || len(years) == 0 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("No trend data")
+	}
+
+	// Find min and max for scaling
+	minScore := scores[0]
+	maxScore := scores[0]
+	for _, score := range scores {
+		if score < minScore {
+			minScore = score
+		}
+		if score > maxScore {
+			maxScore = score
+		}
+	}
+
+	// Add some padding
+	scoreRange := maxScore - minScore
+	if scoreRange == 0 {
+		scoreRange = 1
+	}
+
+	// Create sparkline characters
+	sparkChars := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+	var result strings.Builder
+	for i, score := range scores {
+		normalized := (score - minScore) / scoreRange
+		charIndex := int(normalized * float64(len(sparkChars)-1))
+		if charIndex < 0 {
+			charIndex = 0
+		}
+		if charIndex >= len(sparkChars) {
+			charIndex = len(sparkChars) - 1
+		}
+
+		// Color based on trend
+		var color lipgloss.Color
+		if i > 0 {
+			if score > scores[i-1] {
+				color = lipgloss.Color("82") // Green - improving
+			} else if score < scores[i-1] {
+				color = lipgloss.Color("196") // Red - declining
+			} else {
+				color = lipgloss.Color("226") // Yellow - stable
+			}
+		} else {
+			color = lipgloss.Color("33")
+		}
+
+		result.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(sparkChars[charIndex])))
+	}
+
+	// Add year labels
+	yearLabels := fmt.Sprintf(" (%d-%d)", years[0], years[len(years)-1])
+	result.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(yearLabels))
+
+	return result.String()
+}
+
+// NAEPSubjectComparison creates a side-by-side comparison of subjects
+func NAEPSubjectComparison(mathScore, readingScore, scienceScore float64, width int) string {
+	var result strings.Builder
+
+	result.WriteString(lipgloss.NewStyle().Bold(true).Render("Subject Comparison:"))
+	result.WriteString("\n")
+
+	// Determine which subject is strongest
+	maxScore := math.Max(math.Max(mathScore, readingScore), scienceScore)
+
+	// Math bar
+	if mathScore > 0 {
+		mathBar := BarChart("  Mathematics ", mathScore, maxScore, width-20, lipgloss.Color("33"))
+		if mathScore == maxScore && maxScore > 0 {
+			mathBar += " ★"
+		}
+		result.WriteString(mathBar)
+		result.WriteString("\n")
+	}
+
+	// Reading bar
+	if readingScore > 0 {
+		readingBar := BarChart("  Reading     ", readingScore, maxScore, width-20, lipgloss.Color("201"))
+		if readingScore == maxScore && maxScore > 0 {
+			readingBar += " ★"
+		}
+		result.WriteString(readingBar)
+		result.WriteString("\n")
+	}
+
+	// Science bar
+	if scienceScore > 0 {
+		scienceBar := BarChart("  Science     ", scienceScore, maxScore, width-20, lipgloss.Color("82"))
+		if scienceScore == maxScore && maxScore > 0 {
+			scienceBar += " ★"
+		}
+		result.WriteString(scienceBar)
+		result.WriteString("\n")
+	}
+
+	return result.String()
+}
+
+// NAEPParentSummaryCard creates a parent-friendly summary of NAEP performance
+func NAEPParentSummaryCard(subject string, grade int, proficientPercent float64, score float64, trend string) string {
+	var result strings.Builder
+
+	// Determine performance level
+	var performanceLevel string
+	var performanceColor lipgloss.Color
+
+	if proficientPercent >= 40 {
+		performanceLevel = "Strong Performance"
+		performanceColor = lipgloss.Color("82") // Green
+	} else if proficientPercent >= 25 {
+		performanceLevel = "Moderate Performance"
+		performanceColor = lipgloss.Color("226") // Yellow
+	} else {
+		performanceLevel = "Needs Improvement"
+		performanceColor = lipgloss.Color("196") // Red
+	}
+
+	// Create card
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33"))
+	levelStyle := lipgloss.NewStyle().Bold(true).Foreground(performanceColor)
+
+	result.WriteString(titleStyle.Render(fmt.Sprintf("Grade %d %s", grade, strings.Title(subject))))
+	result.WriteString("\n")
+	result.WriteString(levelStyle.Render(fmt.Sprintf("  %s", performanceLevel)))
+	result.WriteString("\n")
+	result.WriteString(fmt.Sprintf("  %.0f%% of students are proficient or advanced", proficientPercent))
+	result.WriteString("\n")
+	result.WriteString(fmt.Sprintf("  Average score: %.0f", score))
+
+	if trend != "" {
+		result.WriteString(fmt.Sprintf(" %s", trend))
+	}
+
+	return result.String()
+}
+
+// NAEPProficiencyLegend creates a legend explaining achievement levels
+func NAEPProficiencyLegend() string {
+	var result strings.Builder
+
+	result.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("240")).Render("Achievement Levels:"))
+	result.WriteString("\n  ")
+	result.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("█"))
+	result.WriteString(" Below Basic  ")
+	result.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Render("█"))
+	result.WriteString(" Basic  ")
+	result.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Render("█"))
+	result.WriteString(" Proficient  ")
+	result.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Render("█"))
+	result.WriteString(" Advanced")
+
+	return result.String()
+}

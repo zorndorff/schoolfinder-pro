@@ -89,6 +89,14 @@ func NewDB(dataDir string) (*DB, error) {
 				return nil, fmt.Errorf("failed to load FTS extension: %w", err)
 			}
 		}
+
+		// Ensure cache tables exist (for databases created before cache tables were added)
+		if err := d.createCacheTables(); err != nil {
+			if logger != nil {
+				logger.Warn("Failed to create cache tables on existing database", "error", err)
+			}
+			// Don't fail - cache tables are optional
+		}
 	}
 
 	return d, nil
@@ -205,6 +213,61 @@ func (d *DB) initializeDatabase() error {
 		return fmt.Errorf("failed to create FTS index: %w", err)
 	}
 	fmt.Printf("   ✓ FTS index created (%v)\n", time.Since(start))
+
+	// Create cache tables
+	fmt.Println("   Creating cache tables...")
+	start = time.Now()
+	if err := d.createCacheTables(); err != nil {
+		return fmt.Errorf("failed to create cache tables: %w", err)
+	}
+	fmt.Printf("   ✓ Cache tables created (%v)\n", time.Since(start))
+
+	return nil
+}
+
+// createCacheTables creates tables for caching AI scraper and NAEP data
+func (d *DB) createCacheTables() error {
+	// Create AI scraper cache table
+	_, err := d.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS ai_scraper_cache (
+			ncessch VARCHAR PRIMARY KEY,
+			school_name VARCHAR,
+			extracted_at TIMESTAMP,
+			source_url VARCHAR,
+			markdown_content TEXT,
+			legacy_data JSON,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to create ai_scraper_cache table", "error", err)
+		}
+		return fmt.Errorf("failed to create ai_scraper_cache table: %w", err)
+	}
+
+	// Create NAEP cache table
+	_, err = d.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS naep_cache (
+			ncessch VARCHAR PRIMARY KEY,
+			state VARCHAR,
+			district VARCHAR,
+			extracted_at TIMESTAMP,
+			state_scores JSON,
+			district_scores JSON,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to create naep_cache table", "error", err)
+		}
+		return fmt.Errorf("failed to create naep_cache table: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("Cache tables created successfully")
+	}
 
 	return nil
 }
@@ -587,4 +650,144 @@ func (s *School) StudentTeacherRatio() string {
 		return fmt.Sprintf("%.1f:1", ratio)
 	}
 	return "N/A"
+}
+
+// SaveAIScraperCache saves AI scraper data to the database cache
+func (d *DB) SaveAIScraperCache(ncessch, schoolName, sourceURL, markdownContent string, legacyData []byte, extractedAt time.Time) error {
+	query := `
+		INSERT INTO ai_scraper_cache (ncessch, school_name, source_url, markdown_content, legacy_data, extracted_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (ncessch) DO UPDATE SET
+			school_name = EXCLUDED.school_name,
+			source_url = EXCLUDED.source_url,
+			markdown_content = EXCLUDED.markdown_content,
+			legacy_data = EXCLUDED.legacy_data,
+			extracted_at = EXCLUDED.extracted_at,
+			created_at = CURRENT_TIMESTAMP
+	`
+
+	_, err := d.conn.Exec(query, ncessch, schoolName, sourceURL, markdownContent, string(legacyData), extractedAt)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to save AI scraper cache", "error", err, "ncessch", ncessch)
+		}
+		return fmt.Errorf("failed to save AI scraper cache: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("Saved AI scraper data to database cache", "ncessch", ncessch, "school_name", schoolName)
+	}
+
+	return nil
+}
+
+// LoadAIScraperCache loads AI scraper data from the database cache
+func (d *DB) LoadAIScraperCache(ncessch string, maxAge time.Duration) (schoolName, sourceURL, markdownContent string, legacyData []byte, extractedAt time.Time, err error) {
+	query := `
+		SELECT school_name, source_url, markdown_content, legacy_data, extracted_at
+		FROM ai_scraper_cache
+		WHERE ncessch = $1
+	`
+
+	var legacyDataStr sql.NullString
+	err = d.conn.QueryRow(query, ncessch).Scan(&schoolName, &sourceURL, &markdownContent, &legacyDataStr, &extractedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", "", nil, time.Time{}, fmt.Errorf("no cache entry found")
+		}
+		if logger != nil {
+			logger.Error("Failed to load AI scraper cache", "error", err, "ncessch", ncessch)
+		}
+		return "", "", "", nil, time.Time{}, fmt.Errorf("failed to load AI scraper cache: %w", err)
+	}
+
+	// Check if cache is expired
+	if time.Since(extractedAt) > maxAge {
+		return "", "", "", nil, time.Time{}, fmt.Errorf("cache expired")
+	}
+
+	if legacyDataStr.Valid && legacyDataStr.String != "" {
+		legacyData = []byte(legacyDataStr.String)
+	}
+
+	if logger != nil {
+		logger.Info("Loaded AI scraper data from database cache", "ncessch", ncessch, "age_hours", int(time.Since(extractedAt).Hours()))
+	}
+
+	return schoolName, sourceURL, markdownContent, legacyData, extractedAt, nil
+}
+
+// SaveNAEPCache saves NAEP data to the database cache
+func (d *DB) SaveNAEPCache(ncessch, state, district string, stateScores, districtScores []byte, extractedAt time.Time) error {
+	query := `
+		INSERT INTO naep_cache (ncessch, state, district, state_scores, district_scores, extracted_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (ncessch) DO UPDATE SET
+			state = EXCLUDED.state,
+			district = EXCLUDED.district,
+			state_scores = EXCLUDED.state_scores,
+			district_scores = EXCLUDED.district_scores,
+			extracted_at = EXCLUDED.extracted_at,
+			created_at = CURRENT_TIMESTAMP
+	`
+
+	_, err := d.conn.Exec(query, ncessch, state, district, string(stateScores), string(districtScores), extractedAt)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to save NAEP cache", "error", err, "ncessch", ncessch)
+		}
+		return fmt.Errorf("failed to save NAEP cache: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("Saved NAEP data to database cache", "ncessch", ncessch, "state", state)
+	}
+
+	return nil
+}
+
+// LoadNAEPCache loads NAEP data from the database cache
+func (d *DB) LoadNAEPCache(ncessch string, maxAge time.Duration) (state, district string, stateScores, districtScores []byte, extractedAt time.Time, err error) {
+	query := `
+		SELECT state, district, state_scores, district_scores, extracted_at
+		FROM naep_cache
+		WHERE ncessch = $1
+	`
+
+	var stateScoresStr, districtScoresStr sql.NullString
+	var districtNull sql.NullString
+
+	err = d.conn.QueryRow(query, ncessch).Scan(&state, &districtNull, &stateScoresStr, &districtScoresStr, &extractedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", nil, nil, time.Time{}, fmt.Errorf("no cache entry found")
+		}
+		if logger != nil {
+			logger.Error("Failed to load NAEP cache", "error", err, "ncessch", ncessch)
+		}
+		return "", "", nil, nil, time.Time{}, fmt.Errorf("failed to load NAEP cache: %w", err)
+	}
+
+	// Check if cache is expired
+	if time.Since(extractedAt) > maxAge {
+		return "", "", nil, nil, time.Time{}, fmt.Errorf("cache expired")
+	}
+
+	if districtNull.Valid {
+		district = districtNull.String
+	}
+
+	if stateScoresStr.Valid && stateScoresStr.String != "" {
+		stateScores = []byte(stateScoresStr.String)
+	}
+
+	if districtScoresStr.Valid && districtScoresStr.String != "" {
+		districtScores = []byte(districtScoresStr.String)
+	}
+
+	if logger != nil {
+		logger.Info("Loaded NAEP data from database cache", "ncessch", ncessch, "age_days", int(time.Since(extractedAt).Hours()/24))
+	}
+
+	return state, district, stateScores, districtScores, extractedAt, nil
 }

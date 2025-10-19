@@ -7,8 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -77,12 +75,13 @@ type EnhancedSchoolData struct {
 // AIScraperService handles website scraping with Claude
 type AIScraperService struct {
 	client      *anthropic.Client
-	cacheDir    string
+	db          *DB
+	cacheTTL    time.Duration
 	httpClient  *http.Client
 }
 
 // NewAIScraperService creates a new AI scraper service
-func NewAIScraperService(apiKey, cacheDir string) (*AIScraperService, error) {
+func NewAIScraperService(apiKey string, db *DB) (*AIScraperService, error) {
 	if apiKey == "" {
 		if logger != nil {
 			logger.Error("AI scraper initialization failed: missing API key")
@@ -92,25 +91,14 @@ func NewAIScraperService(apiKey, cacheDir string) (*AIScraperService, error) {
 
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 
-	if cacheDir == "" {
-		cacheDir = ".school_cache"
-	}
-
-	// Create cache directory
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		if logger != nil {
-			logger.Error("Failed to create AI scraper cache directory", "error", err, "cache_dir", cacheDir)
-		}
-		return nil, fmt.Errorf("failed to create cache directory: %w", err)
-	}
-
 	if logger != nil {
-		logger.Info("AI scraper service initialized", "cache_dir", cacheDir)
+		logger.Info("AI scraper service initialized with database caching", "cache_ttl_days", 30)
 	}
 
 	return &AIScraperService{
 		client:   &client,
-		cacheDir: cacheDir,
+		db:       db,
+		cacheTTL: 30 * 24 * time.Hour, // 30 days
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -296,16 +284,13 @@ func (s *AIScraperService) ScrapeSchoolWebsite(ctx context.Context, school *Scho
 		websiteURL = "https://" + websiteURL
 	}
 
-	// Check cache first
+	// Check database cache first
 	cached, err := s.loadFromCache(school.NCESSCH)
 	if err == nil && cached != nil {
-		// Return cached data if less than 30 days old
-		if time.Since(cached.ExtractedAt) < 30*24*time.Hour {
-			if logger != nil {
-				logger.Info("Returning cached school data", "school_name", school.Name, "ncessch", school.NCESSCH, "cache_age_days", int(time.Since(cached.ExtractedAt).Hours()/24))
-			}
-			return cached, nil
+		if logger != nil {
+			logger.Info("Returning cached school data from database", "school_name", school.Name, "ncessch", school.NCESSCH, "cache_age_days", int(time.Since(cached.ExtractedAt).Hours()/24))
 		}
+		return cached, nil
 	}
 
 	if logger != nil {
@@ -327,65 +312,117 @@ func (s *AIScraperService) ScrapeSchoolWebsite(ctx context.Context, school *Scho
 	data.ExtractedAt = time.Now()
 	data.SourceURL = websiteURL
 
-	// Save to cache
+	// Save to database cache
 	if err := s.saveToCache(data); err != nil {
 		// Don't fail if cache save fails, just log
 		if logger != nil {
-			logger.Warn("Failed to save school data to cache", "error", err, "school_name", school.Name, "ncessch", school.NCESSCH)
+			logger.Warn("Failed to save school data to database cache", "error", err, "school_name", school.Name, "ncessch", school.NCESSCH)
 		}
 	}
 
 	return data, nil
 }
 
-// loadFromCache loads cached data for a school
+// loadFromCache loads cached data from the database
 func (s *AIScraperService) loadFromCache(ncessch string) (*EnhancedSchoolData, error) {
-	filename := filepath.Join(s.cacheDir, ncessch+".json")
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
 
-	data, err := os.ReadFile(filename)
+	schoolName, sourceURL, markdownContent, legacyData, extractedAt, err := s.db.LoadAIScraperCache(ncessch, s.cacheTTL)
 	if err != nil {
-		// Don't log "file not found" errors as they're expected for uncached schools
-		if !os.IsNotExist(err) && logger != nil {
-			logger.Warn("Failed to read cache file", "error", err, "ncessch", ncessch, "filename", filename)
-		}
 		return nil, err
 	}
 
-	var enhanced EnhancedSchoolData
-	if err := json.Unmarshal(data, &enhanced); err != nil {
-		if logger != nil {
-			logger.Error("Failed to unmarshal cached school data", "error", err, "ncessch", ncessch, "filename", filename)
-		}
-		return nil, err
+	data := &EnhancedSchoolData{
+		NCESSCH:         ncessch,
+		SchoolName:      schoolName,
+		SourceURL:       sourceURL,
+		MarkdownContent: markdownContent,
+		ExtractedAt:     extractedAt,
 	}
 
-	return &enhanced, nil
+	// Unmarshal legacy data if present
+	if len(legacyData) > 0 {
+		var legacy EnhancedSchoolData
+		if err := json.Unmarshal(legacyData, &legacy); err == nil {
+			// Copy legacy fields
+			data.Principal = legacy.Principal
+			data.VicePrincipals = legacy.VicePrincipals
+			data.Mascot = legacy.Mascot
+			data.SchoolColors = legacy.SchoolColors
+			data.Founded = legacy.Founded
+			data.StaffContacts = legacy.StaffContacts
+			data.MainOfficeEmail = legacy.MainOfficeEmail
+			data.MainOfficePhone = legacy.MainOfficePhone
+			data.APCourses = legacy.APCourses
+			data.Honors = legacy.Honors
+			data.SpecialPrograms = legacy.SpecialPrograms
+			data.Languages = legacy.Languages
+			data.Sports = legacy.Sports
+			data.Clubs = legacy.Clubs
+			data.Arts = legacy.Arts
+			data.Facilities = legacy.Facilities
+			data.BellSchedule = legacy.BellSchedule
+			data.SchoolHours = legacy.SchoolHours
+			data.Achievements = legacy.Achievements
+			data.Accreditations = legacy.Accreditations
+			data.Mission = legacy.Mission
+			data.Notes = legacy.Notes
+		}
+	}
+
+	return data, nil
 }
 
-// saveToCache saves data to cache
+// saveToCache saves data to the database cache
 func (s *AIScraperService) saveToCache(data *EnhancedSchoolData) error {
-	filename := filepath.Join(s.cacheDir, data.NCESSCH+".json")
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 
-	jsonData, err := json.MarshalIndent(data, "", "  ")
+	// Marshal legacy data (all structured fields) as JSON
+	legacyData := map[string]interface{}{
+		"principal":         data.Principal,
+		"vice_principals":   data.VicePrincipals,
+		"mascot":            data.Mascot,
+		"school_colors":     data.SchoolColors,
+		"founded":           data.Founded,
+		"staff_contacts":    data.StaffContacts,
+		"main_office_email": data.MainOfficeEmail,
+		"main_office_phone": data.MainOfficePhone,
+		"ap_courses":        data.APCourses,
+		"honors":            data.Honors,
+		"special_programs":  data.SpecialPrograms,
+		"languages":         data.Languages,
+		"sports":            data.Sports,
+		"clubs":             data.Clubs,
+		"arts":              data.Arts,
+		"facilities":        data.Facilities,
+		"bell_schedule":     data.BellSchedule,
+		"school_hours":      data.SchoolHours,
+		"achievements":      data.Achievements,
+		"accreditations":    data.Accreditations,
+		"mission":           data.Mission,
+		"notes":             data.Notes,
+	}
+
+	legacyJSON, err := json.Marshal(legacyData)
 	if err != nil {
 		if logger != nil {
-			logger.Error("Failed to marshal school data for caching", "error", err, "ncessch", data.NCESSCH, "school_name", data.SchoolName)
+			logger.Error("Failed to marshal legacy data", "error", err, "ncessch", data.NCESSCH)
 		}
-		return err
+		legacyJSON = nil // Continue without legacy data
 	}
 
-	if err := os.WriteFile(filename, jsonData, 0644); err != nil {
-		if logger != nil {
-			logger.Error("Failed to write cache file", "error", err, "ncessch", data.NCESSCH, "filename", filename)
-		}
-		return err
-	}
-
-	if logger != nil {
-		logger.Info("Successfully cached school data", "ncessch", data.NCESSCH, "school_name", data.SchoolName, "filename", filename)
-	}
-
-	return nil
+	return s.db.SaveAIScraperCache(
+		data.NCESSCH,
+		data.SchoolName,
+		data.SourceURL,
+		data.MarkdownContent,
+		legacyJSON,
+		data.ExtractedAt,
+	)
 }
 
 // FormatEnhancedData formats the enhanced data for display

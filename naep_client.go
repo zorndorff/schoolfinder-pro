@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -49,7 +47,7 @@ type NAEPData struct {
 // NAEPClient handles NAEP API requests and caching
 type NAEPClient struct {
 	httpClient *http.Client
-	cacheDir   string
+	db         *DB
 	cacheTTL   time.Duration
 }
 
@@ -108,17 +106,14 @@ var naepSubjects = map[string]struct {
 }
 
 // NewNAEPClient creates a new NAEP API client
-func NewNAEPClient(cacheDir string) *NAEPClient {
-	if cacheDir == "" {
-		cacheDir = ".naep_cache"
+func NewNAEPClient(db *DB) *NAEPClient {
+	if logger != nil {
+		logger.Info("NAEP client initialized with database caching", "cache_ttl_days", 90)
 	}
-
-	// Create cache directory
-	os.MkdirAll(cacheDir, 0755)
 
 	return &NAEPClient{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-		cacheDir:   cacheDir,
+		db:         db,
 		cacheTTL:   90 * 24 * time.Hour, // 90 days
 	}
 }
@@ -404,38 +399,81 @@ func min(a, b int) int {
 	return b
 }
 
-// getCachedData retrieves cached NAEP data
+// getCachedData retrieves cached NAEP data from the database
 func (c *NAEPClient) getCachedData(ncessch string) (*NAEPData, error) {
-	cachePath := filepath.Join(c.cacheDir, ncessch+".json")
+	if c.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
 
-	data, err := os.ReadFile(cachePath)
+	state, district, stateScoresJSON, districtScoresJSON, extractedAt, err := c.db.LoadNAEPCache(ncessch, c.cacheTTL)
 	if err != nil {
 		return nil, err
 	}
 
-	var cached NAEPData
-	if err := json.Unmarshal(data, &cached); err != nil {
-		return nil, err
+	data := &NAEPData{
+		NCESSCH:     ncessch,
+		State:       state,
+		District:    district,
+		ExtractedAt: extractedAt,
 	}
 
-	// Check if cache is expired
-	if time.Since(cached.ExtractedAt) > c.cacheTTL {
-		return nil, fmt.Errorf("cache expired")
+	// Unmarshal state scores
+	if len(stateScoresJSON) > 0 {
+		if err := json.Unmarshal(stateScoresJSON, &data.StateScores); err != nil {
+			if logger != nil {
+				logger.Error("Failed to unmarshal state scores from cache", "error", err, "ncessch", ncessch)
+			}
+			return nil, fmt.Errorf("failed to unmarshal state scores: %w", err)
+		}
 	}
 
-	return &cached, nil
+	// Unmarshal district scores
+	if len(districtScoresJSON) > 0 {
+		if err := json.Unmarshal(districtScoresJSON, &data.DistrictScores); err != nil {
+			if logger != nil {
+				logger.Error("Failed to unmarshal district scores from cache", "error", err, "ncessch", ncessch)
+			}
+			return nil, fmt.Errorf("failed to unmarshal district scores: %w", err)
+		}
+	}
+
+	return data, nil
 }
 
-// cacheData caches NAEP data to disk
+// cacheData caches NAEP data to the database
 func (c *NAEPClient) cacheData(ncessch string, data *NAEPData) error {
-	cachePath := filepath.Join(c.cacheDir, ncessch+".json")
-
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
+	if c.db == nil {
+		return fmt.Errorf("database not available")
 	}
 
-	return os.WriteFile(cachePath, jsonData, 0644)
+	// Marshal scores to JSON
+	stateScoresJSON, err := json.Marshal(data.StateScores)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to marshal state scores", "error", err, "ncessch", ncessch)
+		}
+		return fmt.Errorf("failed to marshal state scores: %w", err)
+	}
+
+	var districtScoresJSON []byte
+	if len(data.DistrictScores) > 0 {
+		districtScoresJSON, err = json.Marshal(data.DistrictScores)
+		if err != nil {
+			if logger != nil {
+				logger.Error("Failed to marshal district scores", "error", err, "ncessch", ncessch)
+			}
+			return fmt.Errorf("failed to marshal district scores: %w", err)
+		}
+	}
+
+	return c.db.SaveNAEPCache(
+		ncessch,
+		data.State,
+		data.District,
+		stateScoresJSON,
+		districtScoresJSON,
+		data.ExtractedAt,
+	)
 }
 
 // GetMostRecentScore returns the most recent score for a subject/grade
@@ -493,4 +531,79 @@ func (data *NAEPData) GetScoreTrend(subject string, grade int, useDistrict bool)
 	change = current.MeanScore - previous.MeanScore
 
 	return current, previous, change
+}
+
+// GetAllScoresForSubjectGrade returns all scores for a subject/grade (for trend visualization)
+func (data *NAEPData) GetAllScoresForSubjectGrade(subject string, grade int, useDistrict bool) []NAEPScore {
+	scores := data.StateScores
+	if useDistrict && len(data.DistrictScores) > 0 {
+		scores = data.DistrictScores
+	}
+
+	var relevantScores []NAEPScore
+	for _, score := range scores {
+		if score.Subject == subject && score.Grade == grade && score.MeanScore > 0 {
+			relevantScores = append(relevantScores, score)
+		}
+	}
+
+	// Sort by year ascending for trend charts
+	for i := 0; i < len(relevantScores)-1; i++ {
+		for j := i + 1; j < len(relevantScores); j++ {
+			if relevantScores[j].Year < relevantScores[i].Year {
+				relevantScores[i], relevantScores[j] = relevantScores[j], relevantScores[i]
+			}
+		}
+	}
+
+	return relevantScores
+}
+
+// GetSubjectScoreSummary returns the most recent score for each subject at a given grade
+func (data *NAEPData) GetSubjectScoreSummary(grade int, useDistrict bool) map[string]float64 {
+	summary := make(map[string]float64)
+
+	subjects := []string{"mathematics", "reading", "science"}
+	for _, subject := range subjects {
+		mostRecent := data.GetMostRecentScore(subject, grade, useDistrict)
+		if mostRecent != nil && mostRecent.MeanScore > 0 {
+			summary[subject] = mostRecent.MeanScore
+		}
+	}
+
+	return summary
+}
+
+// GetAchievementLevels returns achievement level percentages (estimated from available data)
+// Note: NAEP API provides AtProficient which is cumulative (Proficient + Advanced)
+// This method estimates the breakdown based on typical NAEP distributions
+func (data *NAEPData) GetAchievementLevels(subject string, grade int, useDistrict bool) (belowBasic, basic, proficient, advanced float64) {
+	mostRecent := data.GetMostRecentScore(subject, grade, useDistrict)
+	if mostRecent == nil || mostRecent.AtProficient == 0 {
+		return 0, 0, 0, 0
+	}
+
+	// We have AtProficient which is Proficient + Advanced
+	proficientPlus := mostRecent.AtProficient
+
+	// Estimate breakdown based on typical NAEP patterns:
+	// Advanced is typically 8-12% of Proficient+
+	// Proficient is the rest
+	// Basic is typically 30-40% of total
+	// Below Basic is the remainder
+
+	advanced = proficientPlus * 0.10 // Estimate 10% of prof+ is advanced
+	proficient = proficientPlus - advanced
+
+	// Estimate Basic as ~35% and Below Basic as remainder
+	basic = 35.0
+	belowBasic = 100.0 - proficientPlus - basic
+
+	// Ensure non-negative
+	if belowBasic < 0 {
+		basic += belowBasic
+		belowBasic = 0
+	}
+
+	return belowBasic, basic, proficient, advanced
 }

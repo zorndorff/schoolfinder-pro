@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,30 @@ import (
 const (
 	maxResults = 100
 )
+
+var logger *slog.Logger
+
+// setupLogger creates and configures the application logger
+func setupLogger(dataDir string) error {
+	logPath := filepath.Join(dataDir, "err.log")
+
+	// Create log file
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	// Create JSON handler for structured logging
+	handler := slog.NewJSONHandler(logFile, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		AddSource: true, // Include file:line information
+	})
+
+	logger = slog.New(handler)
+	logger.Info("Application started", "version", "1.0", "data_dir", dataDir)
+
+	return nil
+}
 
 // renderMarkdown renders markdown content with glamour for beautiful display
 func renderMarkdown(content string, width int) (string, error) {
@@ -58,27 +83,28 @@ const (
 )
 
 type model struct {
-	db            *DB
-	aiScraper     *AIScraperService
-	naepClient    *NAEPClient
-	currentView   view
-	searchInput   textinput.Model
-	saveInput     textinput.Model
-	viewport      viewport.Model
-	stateFilter   string
-	schools       []School
-	list          list.Model
-	selectedItem  *School
-	enhancedData  *EnhancedSchoolData
-	naepData      *NAEPData
-	width         int
-	height        int
-	err           error
-	loading       bool
-	scrapingAI    bool
-	loadingNAEP   bool
-	saveSuccess   string
-	viewportReady bool
+	db              *DB
+	aiScraper       *AIScraperService
+	naepClient      *NAEPClient
+	currentView     view
+	searchInput     textinput.Model
+	saveInput       textinput.Model
+	viewport        viewport.Model
+	stateFilter     string
+	schools         []School
+	list            list.Model
+	selectedItem    *School
+	enhancedData    *EnhancedSchoolData
+	naepData        *NAEPData
+	width           int
+	height          int
+	err             error
+	loading         bool
+	scrapingAI      bool
+	loadingNAEP     bool
+	saveSuccess     string
+	viewportReady   bool
+	autoFetchNAEP   bool // Auto-fetch NAEP data when viewing details
 }
 
 type schoolItem struct {
@@ -254,16 +280,23 @@ func initialModel(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) m
 	vp := viewport.New(80, 20)
 	vp.Style = lipgloss.NewStyle()
 
+	// Check if auto-fetch NAEP is enabled (default: true)
+	autoFetchNAEP := true
+	if autoFetchEnv := os.Getenv("NAEP_AUTO_FETCH"); autoFetchEnv != "" {
+		autoFetchNAEP = autoFetchEnv != "0" && autoFetchEnv != "false" && autoFetchEnv != "no"
+	}
+
 	return model{
-		db:          db,
-		aiScraper:   aiScraper,
-		naepClient:  naepClient,
-		currentView: searchView,
-		searchInput: ti,
-		saveInput:   si,
-		viewport:    vp,
-		list:        l,
-		schools:     []School{},
+		db:            db,
+		aiScraper:     aiScraper,
+		naepClient:    naepClient,
+		currentView:   searchView,
+		searchInput:   ti,
+		saveInput:     si,
+		viewport:      vp,
+		list:          l,
+		schools:       []School{},
+		autoFetchNAEP: autoFetchNAEP,
 	}
 }
 
@@ -312,6 +345,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
+			if logger != nil {
+				logger.Error("School search failed", "error", msg.err, "query", m.searchInput.Value(), "state_filter", m.stateFilter)
+			}
 			return m, nil
 		}
 
@@ -321,12 +357,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			items[i] = schoolItem{school: school}
 		}
 		m.list.SetItems(items)
+		if logger != nil {
+			logger.Info("Search completed", "results_count", len(msg.schools), "query", m.searchInput.Value())
+		}
 		return m, nil
 
 	case aiScrapeMsg:
 		m.scrapingAI = false
 		if msg.err != nil {
 			m.err = fmt.Errorf("AI scraping failed: %w", msg.err)
+			if logger != nil && m.selectedItem != nil {
+				logger.Error("AI scraping failed", "error", msg.err, "school_id", m.selectedItem.NCESSCH, "school_name", m.selectedItem.Name, "website", m.selectedItem.WebsiteString())
+			}
 			return m, nil
 		}
 		m.enhancedData = msg.data
@@ -334,29 +376,44 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == detailView {
 			m.updateDetailViewport()
 		}
+		if logger != nil && m.selectedItem != nil {
+			logger.Info("AI scraping completed", "school_id", m.selectedItem.NCESSCH, "school_name", m.selectedItem.Name)
+		}
 		return m, nil
 
 	case saveMsg:
 		if msg.err != nil {
 			m.err = fmt.Errorf("save failed: %w", msg.err)
 			m.currentView = detailView
+			if logger != nil && m.selectedItem != nil {
+				logger.Error("Failed to save school data", "error", msg.err, "school_id", m.selectedItem.NCESSCH, "filename", m.saveInput.Value())
+			}
 			return m, nil
 		}
 		m.saveSuccess = fmt.Sprintf("Saved to: %s", msg.filename)
 		m.saveInput.SetValue("")
 		m.currentView = detailView
+		if logger != nil && m.selectedItem != nil {
+			logger.Info("School data saved", "school_id", m.selectedItem.NCESSCH, "filename", msg.filename)
+		}
 		return m, nil
 
 	case naepDataMsg:
 		m.loadingNAEP = false
 		if msg.err != nil {
 			m.err = fmt.Errorf("NAEP fetch failed: %w", msg.err)
+			if logger != nil && m.selectedItem != nil {
+				logger.Error("NAEP data fetch failed", "error", msg.err, "school_id", m.selectedItem.NCESSCH, "school_name", m.selectedItem.Name, "state", m.selectedItem.State, "grade_low", m.selectedItem.GradeLow.String, "grade_high", m.selectedItem.GradeHigh.String)
+			}
 			return m, nil
 		}
 		m.naepData = msg.data
 		m.err = nil
 		if m.currentView == detailView {
 			m.updateDetailViewport()
+		}
+		if logger != nil && m.selectedItem != nil {
+			logger.Info("NAEP data fetched", "school_id", m.selectedItem.NCESSCH, "state", m.selectedItem.State, "state_scores", len(msg.data.StateScores), "district_scores", len(msg.data.DistrictScores))
 		}
 		return m, nil
 	}
@@ -391,6 +448,12 @@ func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.currentView = detailView
 				m.viewport.GotoTop() // Reset scroll position
 				m.updateDetailViewport() // Load content into viewport
+
+				// Auto-fetch NAEP data if enabled
+				if m.autoFetchNAEP && m.naepClient != nil && !m.loadingNAEP {
+					m.loadingNAEP = true
+					return m, fetchNAEPData(m.naepClient, m.selectedItem)
+				}
 			}
 		}
 		return m, nil
@@ -985,12 +1048,19 @@ func (m model) detailViewRender() string {
 
 	var help string
 	s := m.selectedItem
+
+	// Build NAEP shortcut text
+	naepText := "Ctrl+N: NAEP"
+	if m.autoFetchNAEP {
+		naepText = "Ctrl+N: Refresh NAEP"
+	}
+
 	if m.enhancedData != nil {
-		help = "↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | Ctrl+E: Edit | Ctrl+N: NAEP | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
+		help = fmt.Sprintf("↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | Ctrl+E: Edit | %s | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit", naepText)
 	} else if m.aiScraper != nil && s.Website.Valid && s.Website.String != "" {
-		help = "↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | Ctrl+A: AI Extract | Ctrl+N: NAEP | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
+		help = fmt.Sprintf("↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | Ctrl+A: AI Extract | %s | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit", naepText)
 	} else {
-		help = "↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | Ctrl+N: NAEP | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit"
+		help = fmt.Sprintf("↑/↓/PgUp/PgDn: Scroll | Ctrl+W: Save | %s | Ctrl+Y: Copy ID | Esc: Back | Ctrl+C: Quit", naepText)
 	}
 	b.WriteString(helpStyle.Render(help))
 
@@ -1061,9 +1131,18 @@ func main() {
 		dataDir = os.Args[1]
 	}
 
+	// Setup logger first
+	if err := setupLogger(dataDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to setup logger: %v\n", err)
+		// Continue without logging rather than fail
+	}
+
 	// Check for required data files
 	missing, err := CheckDataFiles(dataDir)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to check data files", "error", err, "data_dir", dataDir)
+		}
 		fmt.Fprintf(os.Stderr, "Error checking data files: %v\n", err)
 		os.Exit(1)
 	}
@@ -1072,10 +1151,16 @@ func main() {
 	if len(missing) > 0 {
 		if PromptUserForDownload(missing) {
 			if err := DownloadAndExtractFiles(dataDir, missing); err != nil {
+				if logger != nil {
+					logger.Error("Failed to download data files", "error", err, "missing_files", missing)
+				}
 				fmt.Fprintf(os.Stderr, "Error downloading files: %v\n", err)
 				os.Exit(1)
 			}
 		} else {
+			if logger != nil {
+				logger.Warn("User declined to download required data files", "missing_files", missing)
+			}
 			fmt.Println("\n❌ Cannot proceed without required data files.")
 			fmt.Println("Please download the files manually or run the program again.")
 			os.Exit(1)
@@ -1084,6 +1169,9 @@ func main() {
 
 	db, err := NewDB(dataDir)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to initialize database", "error", err, "data_dir", dataDir)
+		}
 		fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
 		os.Exit(1)
 	}
@@ -1095,6 +1183,9 @@ func main() {
 	if apiKey != "" {
 		aiScraper, err = NewAIScraperService(apiKey, ".school_cache")
 		if err != nil {
+			if logger != nil {
+				logger.Warn("AI scraper initialization failed", "error", err)
+			}
 			fmt.Fprintf(os.Stderr, "Warning: AI scraper initialization failed: %v\n", err)
 			aiScraper = nil
 		}
@@ -1102,6 +1193,20 @@ func main() {
 
 	// Initialize NAEP client
 	naepClient := NewNAEPClient(".naep_cache")
+
+	// Print configuration info
+	fmt.Println("\n📊 School Finder Configuration:")
+	if os.Getenv("NAEP_AUTO_FETCH") == "" || (os.Getenv("NAEP_AUTO_FETCH") != "0" && os.Getenv("NAEP_AUTO_FETCH") != "false" && os.Getenv("NAEP_AUTO_FETCH") != "no") {
+		fmt.Println("   • NAEP Auto-Fetch: ✓ Enabled (set NAEP_AUTO_FETCH=0 to disable)")
+	} else {
+		fmt.Println("   • NAEP Auto-Fetch: ✗ Disabled (unset NAEP_AUTO_FETCH to enable)")
+	}
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		fmt.Println("   • AI Website Scraper: ✓ Available")
+	} else {
+		fmt.Println("   • AI Website Scraper: ✗ Not configured (set ANTHROPIC_API_KEY)")
+	}
+	fmt.Println()
 
 	p := tea.NewProgram(
 		initialModel(db, aiScraper, naepClient),

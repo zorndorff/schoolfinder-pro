@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -59,10 +60,10 @@ type naepAPIResponse struct {
 }
 
 type naepDataPoint struct {
-	Value        string `json:"value"`
-	ErrorFlag    string `json:"errorFlag"`
-	Year         string `json:"year"`
-	Jurisdiction string `json:"jurisLabel"`
+	Value        float64 `json:"value"`
+	ErrorFlag    int     `json:"errorFlag"`
+	Year         int     `json:"year"`
+	Jurisdiction string  `json:"jurisLabel"`
 }
 
 // Map of NAEP large city districts to jurisdiction codes
@@ -295,25 +296,20 @@ func (c *NAEPClient) fetchSubjectScores(jurisCode, subjectName, subjectCode, sub
 	// Combine mean and achievement level data
 	var scores []NAEPScore
 	for _, dp := range meanScores {
-		year, _ := strconv.Atoi(dp.Year)
-		meanScore, _ := strconv.ParseFloat(dp.Value, 64)
-		errorFlag, _ := strconv.Atoi(dp.ErrorFlag)
-
 		score := NAEPScore{
 			Subject:      subjectName,
 			Grade:        grade,
-			Year:         year,
+			Year:         dp.Year,
 			Jurisdiction: dp.Jurisdiction,
 			JurisCode:    jurisCode,
-			MeanScore:    meanScore,
-			ErrorCode:    errorFlag,
+			MeanScore:    dp.Value,
+			ErrorCode:    dp.ErrorFlag,
 		}
 
 		// Find matching achievement level data
 		for _, alc := range alcScores {
 			if alc.Year == dp.Year {
-				proficientPlus, _ := strconv.ParseFloat(alc.Value, 64)
-				score.AtProficient = proficientPlus
+				score.AtProficient = alc.Value
 				break
 			}
 		}
@@ -343,29 +339,56 @@ func (c *NAEPClient) buildNAEPURL(params map[string]string) string {
 func (c *NAEPClient) fetchAndParse(apiURL string) ([]naepDataPoint, error) {
 	resp, err := c.httpClient.Get(apiURL)
 	if err != nil {
+		if logger != nil {
+			logger.Error("NAEP API HTTP request failed", "error", err, "url", apiURL)
+		}
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if logger != nil {
+			logger.Error("NAEP API returned non-OK status", "status_code", resp.StatusCode, "url", apiURL)
+		}
 		return nil, fmt.Errorf("API returned status %d for URL: %s", resp.StatusCode, apiURL)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to read NAEP API response body", "error", err, "url", apiURL)
+		}
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	var apiResp naepAPIResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON (body: %s): %w", string(body[:min(len(body), 200)]), err)
+		bodyPreview := string(body[:min(len(body), 200)])
+		if logger != nil {
+			logger.Error("Failed to parse NAEP API JSON response",
+				"error", err,
+				"url", apiURL,
+				"body_preview", bodyPreview,
+				slog.Int("body_length", len(body)))
+		}
+		return nil, fmt.Errorf("failed to parse JSON (body: %s): %w", bodyPreview, err)
 	}
 
 	if apiResp.Status != 200 {
-		return nil, fmt.Errorf("API status not OK: %d (body: %s)", apiResp.Status, string(body[:min(len(body), 200)]))
+		bodyPreview := string(body[:min(len(body), 200)])
+		if logger != nil {
+			logger.Error("NAEP API returned error status",
+				"api_status", apiResp.Status,
+				"url", apiURL,
+				"body_preview", bodyPreview)
+		}
+		return nil, fmt.Errorf("API status not OK: %d (body: %s)", apiResp.Status, bodyPreview)
 	}
 
 	if len(apiResp.Result) == 0 {
+		if logger != nil {
+			logger.Warn("NAEP API returned empty results", "url", apiURL)
+		}
 		return nil, fmt.Errorf("no results returned from API")
 	}
 

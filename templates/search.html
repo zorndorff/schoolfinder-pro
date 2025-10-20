@@ -1,80 +1,105 @@
-{{define "content"}}
-<div class="search-container">
-    <form hx-post="/search" hx-target="#results" hx-trigger="submit, input delay:500ms from:#search-input">
-        <div class="search-box">
-            <input
-                type="search"
-                id="search-input"
-                name="query"
-                placeholder="Search by school name, city, district, address, or zip..."
-                value="{{.Query}}"
-                autofocus
-            >
-
-            <select name="state" hx-post="/search" hx-target="#results" hx-trigger="change">
-                <option value="">All States</option>
-                <option value="AL" {{if eq .State "AL"}}selected{{end}}>Alabama</option>
-                <option value="AK" {{if eq .State "AK"}}selected{{end}}>Alaska</option>
-                <option value="AZ" {{if eq .State "AZ"}}selected{{end}}>Arizona</option>
-                <option value="AR" {{if eq .State "AR"}}selected{{end}}>Arkansas</option>
-                <option value="CA" {{if eq .State "CA"}}selected{{end}}>California</option>
-                <option value="CO" {{if eq .State "CO"}}selected{{end}}>Colorado</option>
-                <option value="CT" {{if eq .State "CT"}}selected{{end}}>Connecticut</option>
-                <option value="DE" {{if eq .State "DE"}}selected{{end}}>Delaware</option>
-                <option value="FL" {{if eq .State "FL"}}selected{{end}}>Florida</option>
-                <option value="GA" {{if eq .State "GA"}}selected{{end}}>Georgia</option>
-                <option value="HI" {{if eq .State "HI"}}selected{{end}}>Hawaii</option>
-                <option value="ID" {{if eq .State "ID"}}selected{{end}}>Idaho</option>
-                <option value="IL" {{if eq .State "IL"}}selected{{end}}>Illinois</option>
-                <option value="IN" {{if eq .State "IN"}}selected{{end}}>Indiana</option>
-                <option value="IA" {{if eq .State "IA"}}selected{{end}}>Iowa</option>
-                <option value="KS" {{if eq .State "KS"}}selected{{end}}>Kansas</option>
-                <option value="KY" {{if eq .State "KY"}}selected{{end}}>Kentucky</option>
-                <option value="LA" {{if eq .State "LA"}}selected{{end}}>Louisiana</option>
-                <option value="ME" {{if eq .State "ME"}}selected{{end}}>Maine</option>
-                <option value="MD" {{if eq .State "MD"}}selected{{end}}>Maryland</option>
-                <option value="MA" {{if eq .State "MA"}}selected{{end}}>Massachusetts</option>
-                <option value="MI" {{if eq .State "MI"}}selected{{end}}>Michigan</option>
-                <option value="MN" {{if eq .State "MN"}}selected{{end}}>Minnesota</option>
-                <option value="MS" {{if eq .State "MS"}}selected{{end}}>Mississippi</option>
-                <option value="MO" {{if eq .State "MO"}}selected{{end}}>Missouri</option>
-                <option value="MT" {{if eq .State "MT"}}selected{{end}}>Montana</option>
-                <option value="NE" {{if eq .State "NE"}}selected{{end}}>Nebraska</option>
-                <option value="NV" {{if eq .State "NV"}}selected{{end}}>Nevada</option>
-                <option value="NH" {{if eq .State "NH"}}selected{{end}}>New Hampshire</option>
-                <option value="NJ" {{if eq .State "NJ"}}selected{{end}}>New Jersey</option>
-                <option value="NM" {{if eq .State "NM"}}selected{{end}}>New Mexico</option>
-                <option value="NY" {{if eq .State "NY"}}selected{{end}}>New York</option>
-                <option value="NC" {{if eq .State "NC"}}selected{{end}}>North Carolina</option>
-                <option value="ND" {{if eq .State "ND"}}selected{{end}}>North Dakota</option>
-                <option value="OH" {{if eq .State "OH"}}selected{{end}}>Ohio</option>
-                <option value="OK" {{if eq .State "OK"}}selected{{end}}>Oklahoma</option>
-                <option value="OR" {{if eq .State "OR"}}selected{{end}}>Oregon</option>
-                <option value="PA" {{if eq .State "PA"}}selected{{end}}>Pennsylvania</option>
-                <option value="RI" {{if eq .State "RI"}}selected{{end}}>Rhode Island</option>
-                <option value="SC" {{if eq .State "SC"}}selected{{end}}>South Carolina</option>
-                <option value="SD" {{if eq .State "SD"}}selected{{end}}>South Dakota</option>
-                <option value="TN" {{if eq .State "TN"}}selected{{end}}>Tennessee</option>
-                <option value="TX" {{if eq .State "TX"}}selected{{end}}>Texas</option>
-                <option value="UT" {{if eq .State "UT"}}selected{{end}}>Utah</option>
-                <option value="VT" {{if eq .State "VT"}}selected{{end}}>Vermont</option>
-                <option value="VA" {{if eq .State "VA"}}selected{{end}}>Virginia</option>
-                <option value="WA" {{if eq .State "WA"}}selected{{end}}>Washington</option>
-                <option value="WV" {{if eq .State "WV"}}selected{{end}}>West Virginia</option>
-                <option value="WI" {{if eq .State "WI"}}selected{{end}}>Wisconsin</option>
-                <option value="WY" {{if eq .State "WY"}}selected{{end}}>Wyoming</option>
-            </select>
-
-            <button type="submit">Search</button>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - School Finder</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><a href="/">School Finder</a></h1>
+            <p class="subtitle">Search 102K+ schools from the Common Core of Data</p>
         </div>
-    </form>
+    </header>
 
-    <div id="results" class="results-container">
-        <p class="help-text">
-            Start typing to search for schools, or use the state filter to browse by state.
-            <br>
-            Search supports: school name, city, district name, street address, and zip code.
-        </p>
-    </div>
-</div>
-{{end}}
+    <main class="container">
+        <div class="search-container">
+            <form hx-post="/search" hx-target="#results" hx-trigger="submit, input delay:500ms from:#search-input">
+                <div class="search-box">
+                    <input
+                        type="search"
+                        id="search-input"
+                        name="query"
+                        placeholder="Search by school name, city, district, address, or zip..."
+                        value="{{.Query}}"
+                        autofocus
+                    >
+
+                    <select name="state" hx-post="/search" hx-target="#results" hx-trigger="change">
+                        <option value="">All States</option>
+                        <option value="AL" {{if eq .State "AL"}}selected{{end}}>Alabama</option>
+                        <option value="AK" {{if eq .State "AK"}}selected{{end}}>Alaska</option>
+                        <option value="AZ" {{if eq .State "AZ"}}selected{{end}}>Arizona</option>
+                        <option value="AR" {{if eq .State "AR"}}selected{{end}}>Arkansas</option>
+                        <option value="CA" {{if eq .State "CA"}}selected{{end}}>California</option>
+                        <option value="CO" {{if eq .State "CO"}}selected{{end}}>Colorado</option>
+                        <option value="CT" {{if eq .State "CT"}}selected{{end}}>Connecticut</option>
+                        <option value="DE" {{if eq .State "DE"}}selected{{end}}>Delaware</option>
+                        <option value="FL" {{if eq .State "FL"}}selected{{end}}>Florida</option>
+                        <option value="GA" {{if eq .State "GA"}}selected{{end}}>Georgia</option>
+                        <option value="HI" {{if eq .State "HI"}}selected{{end}}>Hawaii</option>
+                        <option value="ID" {{if eq .State "ID"}}selected{{end}}>Idaho</option>
+                        <option value="IL" {{if eq .State "IL"}}selected{{end}}>Illinois</option>
+                        <option value="IN" {{if eq .State "IN"}}selected{{end}}>Indiana</option>
+                        <option value="IA" {{if eq .State "IA"}}selected{{end}}>Iowa</option>
+                        <option value="KS" {{if eq .State "KS"}}selected{{end}}>Kansas</option>
+                        <option value="KY" {{if eq .State "KY"}}selected{{end}}>Kentucky</option>
+                        <option value="LA" {{if eq .State "LA"}}selected{{end}}>Louisiana</option>
+                        <option value="ME" {{if eq .State "ME"}}selected{{end}}>Maine</option>
+                        <option value="MD" {{if eq .State "MD"}}selected{{end}}>Maryland</option>
+                        <option value="MA" {{if eq .State "MA"}}selected{{end}}>Massachusetts</option>
+                        <option value="MI" {{if eq .State "MI"}}selected{{end}}>Michigan</option>
+                        <option value="MN" {{if eq .State "MN"}}selected{{end}}>Minnesota</option>
+                        <option value="MS" {{if eq .State "MS"}}selected{{end}}>Mississippi</option>
+                        <option value="MO" {{if eq .State "MO"}}selected{{end}}>Missouri</option>
+                        <option value="MT" {{if eq .State "MT"}}selected{{end}}>Montana</option>
+                        <option value="NE" {{if eq .State "NE"}}selected{{end}}>Nebraska</option>
+                        <option value="NV" {{if eq .State "NV"}}selected{{end}}>Nevada</option>
+                        <option value="NH" {{if eq .State "NH"}}selected{{end}}>New Hampshire</option>
+                        <option value="NJ" {{if eq .State "NJ"}}selected{{end}}>New Jersey</option>
+                        <option value="NM" {{if eq .State "NM"}}selected{{end}}>New Mexico</option>
+                        <option value="NY" {{if eq .State "NY"}}selected{{end}}>New York</option>
+                        <option value="NC" {{if eq .State "NC"}}selected{{end}}>North Carolina</option>
+                        <option value="ND" {{if eq .State "ND"}}selected{{end}}>North Dakota</option>
+                        <option value="OH" {{if eq .State "OH"}}selected{{end}}>Ohio</option>
+                        <option value="OK" {{if eq .State "OK"}}selected{{end}}>Oklahoma</option>
+                        <option value="OR" {{if eq .State "OR"}}selected{{end}}>Oregon</option>
+                        <option value="PA" {{if eq .State "PA"}}selected{{end}}>Pennsylvania</option>
+                        <option value="RI" {{if eq .State "RI"}}selected{{end}}>Rhode Island</option>
+                        <option value="SC" {{if eq .State "SC"}}selected{{end}}>South Carolina</option>
+                        <option value="SD" {{if eq .State "SD"}}selected{{end}}>South Dakota</option>
+                        <option value="TN" {{if eq .State "TN"}}selected{{end}}>Tennessee</option>
+                        <option value="TX" {{if eq .State "TX"}}selected{{end}}>Texas</option>
+                        <option value="UT" {{if eq .State "UT"}}selected{{end}}>Utah</option>
+                        <option value="VT" {{if eq .State "VT"}}selected{{end}}>Vermont</option>
+                        <option value="VA" {{if eq .State "VA"}}selected{{end}}>Virginia</option>
+                        <option value="WA" {{if eq .State "WA"}}selected{{end}}>Washington</option>
+                        <option value="WV" {{if eq .State "WV"}}selected{{end}}>West Virginia</option>
+                        <option value="WI" {{if eq .State "WI"}}selected{{end}}>Wisconsin</option>
+                        <option value="WY" {{if eq .State "WY"}}selected{{end}}>Wyoming</option>
+                    </select>
+
+                    <button type="submit">Search</button>
+                </div>
+            </form>
+
+            <div id="results" class="results-container">
+                <p class="help-text">
+                    Start typing to search for schools, or use the state filter to browse by state.
+                    <br>
+                    Search supports: school name, city, district name, street address, and zip code.
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Data from NCES Common Core of Data (CCD) 2023-24 | <a href="https://github.com/yourusername/schoolfinder-pro">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>

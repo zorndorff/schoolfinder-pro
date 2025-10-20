@@ -1,0 +1,142 @@
+{{define "ai_data.html"}}
+{{if .EnhancedData}}
+<div class="ai-content">
+    <p class="extraction-info">
+        <strong>Extracted from:</strong> <a href="{{.EnhancedData.SourceURL}}" target="_blank" rel="noopener noreferrer">{{.EnhancedData.SourceURL}}</a>
+        <br>
+        <strong>Extracted at:</strong> {{.EnhancedData.ExtractedAt.Format "2006-01-02 15:04:05"}}
+    </p>
+
+    {{if .EnhancedData.MarkdownContent}}
+    <div class="markdown-content">
+        <h3>School Information</h3>
+        <pre>{{.EnhancedData.MarkdownContent}}</pre>
+    </div>
+    {{end}}
+
+    <!-- Legacy structured data (if available) -->
+    {{if or .EnhancedData.Principal .EnhancedData.StaffContacts}}
+    <div class="section">
+        <h3>Leadership & Staff</h3>
+
+        {{if .EnhancedData.Principal}}
+        <p><strong>Principal:</strong> {{.EnhancedData.Principal}}</p>
+        {{end}}
+
+        {{if .EnhancedData.VicePrincipals}}
+        <p><strong>Vice Principals:</strong></p>
+        <ul>
+            {{range .EnhancedData.VicePrincipals}}
+            <li>{{.}}</li>
+            {{end}}
+        </ul>
+        {{end}}
+
+        {{if .EnhancedData.StaffContacts}}
+        <details>
+            <summary><strong>Staff Directory ({{len .EnhancedData.StaffContacts}} contacts)</strong></summary>
+            <div class="staff-directory">
+                {{range .EnhancedData.StaffContacts}}
+                <div class="staff-card">
+                    <p class="staff-name">{{.Name}}</p>
+                    {{if .Title}}<p class="staff-title">{{.Title}}</p>{{end}}
+                    {{if .Department}}<p class="staff-dept">{{.Department}}</p>{{end}}
+                    {{if .Email}}<p class="staff-email"><a href="mailto:{{.Email}}">{{.Email}}</a></p>{{end}}
+                    {{if .Phone}}<p class="staff-phone">{{.Phone}}</p>{{end}}
+                </div>
+                {{end}}
+            </div>
+        </details>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if or .EnhancedData.Mascot .EnhancedData.SchoolColors .EnhancedData.Founded}}
+    <div class="section">
+        <h3>School Identity</h3>
+        {{if .EnhancedData.Mascot}}<p><strong>Mascot:</strong> {{.EnhancedData.Mascot}}</p>{{end}}
+        {{if .EnhancedData.SchoolColors}}<p><strong>School Colors:</strong> {{range $i, $color := .EnhancedData.SchoolColors}}{{if $i}}, {{end}}{{$color}}{{end}}</p>{{end}}
+        {{if .EnhancedData.Founded}}<p><strong>Founded:</strong> {{.EnhancedData.Founded}}</p>{{end}}
+    </div>
+    {{end}}
+
+    {{if or .EnhancedData.APCourses .EnhancedData.Honors .EnhancedData.SpecialPrograms .EnhancedData.Languages}}
+    <div class="section">
+        <h3>Academic Programs</h3>
+
+        {{if .EnhancedData.APCourses}}
+        <details>
+            <summary><strong>AP Courses ({{len .EnhancedData.APCourses}})</strong></summary>
+            <ul>
+                {{range .EnhancedData.APCourses}}
+                <li>{{.}}</li>
+                {{end}}
+            </ul>
+        </details>
+        {{end}}
+
+        {{if .EnhancedData.Honors}}
+        <details>
+            <summary><strong>Honors Courses ({{len .EnhancedData.Honors}})</strong></summary>
+            <ul>
+                {{range .EnhancedData.Honors}}
+                <li>{{.}}</li>
+                {{end}}
+            </ul>
+        </details>
+        {{end}}
+
+        {{if .EnhancedData.SpecialPrograms}}
+        <p><strong>Special Programs:</strong></p>
+        <ul>
+            {{range .EnhancedData.SpecialPrograms}}
+            <li>{{.}}</li>
+            {{end}}
+        </ul>
+        {{end}}
+
+        {{if .EnhancedData.Languages}}
+        <p><strong>Languages Offered:</strong> {{range $i, $lang := .EnhancedData.Languages}}{{if $i}}, {{end}}{{$lang}}{{end}}</p>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if or .EnhancedData.Sports .EnhancedData.Clubs .EnhancedData.Arts}}
+    <div class="section">
+        <h3>Activities & Extracurriculars</h3>
+
+        {{if .EnhancedData.Sports}}
+        <details>
+            <summary><strong>Sports Teams ({{len .EnhancedData.Sports}})</strong></summary>
+            <ul>
+                {{range .EnhancedData.Sports}}
+                <li>{{.}}</li>
+                {{end}}
+            </ul>
+        </details>
+        {{end}}
+
+        {{if .EnhancedData.Clubs}}
+        <details>
+            <summary><strong>Clubs & Organizations ({{len .EnhancedData.Clubs}})</strong></summary>
+            <ul>
+                {{range .EnhancedData.Clubs}}
+                <li>{{.}}</li>
+                {{end}}
+            </ul>
+        </details>
+        {{end}}
+
+        {{if .EnhancedData.Arts}}
+        <p><strong>Arts Programs:</strong></p>
+        <ul>
+            {{range .EnhancedData.Arts}}
+            <li>{{.}}</li>
+            {{end}}
+        </ul>
+        {{end}}
+    </div>
+    {{end}}
+</div>
+{{end}}
+{{end}}

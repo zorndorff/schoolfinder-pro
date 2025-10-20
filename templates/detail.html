@@ -1,0 +1,125 @@
+{{define "content"}}
+<div class="detail-container">
+    <div class="detail-header">
+        <a href="/" class="back-link">← Back to Search</a>
+        <h1>{{.School.Name}}</h1>
+        <p class="school-id">NCES ID: {{.School.NCESSCH}}</p>
+    </div>
+
+    <div class="detail-grid">
+        <!-- Basic Info Card -->
+        <div class="card">
+            <h2>Basic Information</h2>
+            <dl class="info-list">
+                <dt>School Type</dt>
+                <dd>{{.School.SchoolTypeString}}</dd>
+
+                <dt>Level</dt>
+                <dd>{{.School.LevelString}}</dd>
+
+                <dt>Grade Range</dt>
+                <dd>{{.School.GradeRangeString}}</dd>
+
+                <dt>Charter School</dt>
+                <dd>{{.School.CharterString}}</dd>
+
+                <dt>School Year</dt>
+                <dd>{{.School.SchoolYear}}</dd>
+            </dl>
+        </div>
+
+        <!-- Location Card -->
+        <div class="card">
+            <h2>Location</h2>
+            <dl class="info-list">
+                <dt>Address</dt>
+                <dd>{{.School.FullAddress}}<br>{{.School.City}}, {{.School.State}} {{.School.ZipString}}</dd>
+
+                <dt>State</dt>
+                <dd>{{.School.StateName}}</dd>
+
+                <dt>District</dt>
+                <dd>{{.School.District}}</dd>
+            </dl>
+        </div>
+
+        <!-- Contact Card -->
+        <div class="card">
+            <h2>Contact</h2>
+            <dl class="info-list">
+                <dt>Phone</dt>
+                <dd>{{.School.PhoneString}}</dd>
+
+                <dt>Website</dt>
+                <dd>
+                    {{if ne (.School.WebsiteString) "N/A"}}
+                    <a href="{{.School.WebsiteString}}" target="_blank" rel="noopener noreferrer">{{.School.WebsiteString}}</a>
+                    {{else}}
+                    N/A
+                    {{end}}
+                </dd>
+            </dl>
+        </div>
+
+        <!-- Statistics Card -->
+        <div class="card">
+            <h2>Statistics</h2>
+            <dl class="info-list">
+                <dt>Enrollment</dt>
+                <dd>
+                    {{.School.EnrollmentString}} students
+                    {{if .School.Enrollment.Valid}}
+                    <div class="chart-container">
+                        <div class="bar-chart">
+                            <div class="bar" style="width: {{if gt .School.Enrollment.Int64 1000}}100{{else}}{{.School.Enrollment.Int64 | printf "%.0f" | printf "%s" | len | printf "%d" }}{{end}}%">
+                                {{.School.EnrollmentString}}
+                            </div>
+                        </div>
+                    </div>
+                    {{end}}
+                </dd>
+
+                <dt>Teachers (FTE)</dt>
+                <dd>{{.School.TeachersString}}</dd>
+
+                <dt>Student-Teacher Ratio</dt>
+                <dd>{{.School.StudentTeacherRatio}}</dd>
+            </dl>
+        </div>
+    </div>
+
+    <!-- AI Data Section -->
+    <div class="card ai-section">
+        <div class="ai-header">
+            <h2>Enhanced School Data (AI Extracted)</h2>
+            {{if not .EnhancedData}}
+            <button
+                hx-post="/schools/{{.School.NCESSCH}}/ai"
+                hx-target="#ai-data"
+                hx-swap="innerHTML"
+                hx-indicator="#ai-loading"
+                class="btn btn-primary"
+            >
+                Extract Website Data
+            </button>
+            {{end}}
+        </div>
+
+        <div id="ai-loading" class="htmx-indicator">
+            <div class="spinner"></div>
+            <p>Extracting data from school website...</p>
+        </div>
+
+        <div id="ai-data">
+            {{if .EnhancedData}}
+                {{template "ai_data.html" .}}
+            {{else}}
+                <p class="help-text">
+                    Click "Extract Website Data" to use AI to extract staff directory, programs, sports teams,
+                    facilities, and other information from the school's website.
+                </p>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}

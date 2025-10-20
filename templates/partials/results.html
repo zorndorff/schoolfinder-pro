@@ -1,0 +1,32 @@
+{{define "results.html"}}
+{{if .Schools}}
+    <div class="results-header">
+        <p class="results-count">Found {{.Count}} schools{{if .Query}} for "{{.Query}}"{{end}}{{if .State}} in {{.State}}{{end}}</p>
+    </div>
+
+    <div class="results-list">
+        {{range .Schools}}
+        <a href="/schools/{{.NCESSCH}}" class="school-card">
+            <div class="school-card-header">
+                <h3>{{.Name}}</h3>
+                <span class="school-type">{{.SchoolTypeString}}</span>
+            </div>
+            <div class="school-card-details">
+                <p class="location">{{.City}}, {{.State}}</p>
+                {{if .District}}
+                <p class="district">{{.District}}</p>
+                {{end}}
+                {{if .Enrollment.Valid}}
+                <p class="enrollment">{{.EnrollmentString}} students</p>
+                {{end}}
+            </div>
+        </a>
+        {{end}}
+    </div>
+{{else}}
+    <div class="no-results">
+        <p>No schools found{{if .Query}} for "{{.Query}}"{{end}}{{if .State}} in {{.State}}{{end}}.</p>
+        <p>Try a different search term or remove the state filter.</p>
+    </div>
+{{end}}
+{{end}}

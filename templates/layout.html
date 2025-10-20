@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - School Finder</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><a href="/">School Finder</a></h1>
+            <p class="subtitle">Search 102K+ schools from the Common Core of Data</p>
+        </div>
+    </header>
+
+    <main class="container">
+        {{template "content" .}}
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Data from NCES Common Core of Data (CCD) 2023-24 | <a href="https://github.com/yourusername/schoolfinder-pro">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>

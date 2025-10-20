@@ -1609,11 +1609,45 @@ func convertEnhancedToCmd(e *EnhancedSchoolData) *cmd.EnhancedSchoolDataJSON {
 	return data
 }
 
+// startServer initializes and starts the web server
+func startServer(dbInterface cmd.DBInterface, port int, dataDir string) error {
+	// Extract the underlying *DB from the adapter
+	adapter, ok := dbInterface.(*dbAdapter)
+	if !ok {
+		return fmt.Errorf("invalid database interface type")
+	}
+
+	// Try to initialize AI scraper (optional)
+	var aiScraper *AIScraperService
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey != "" {
+		var err error
+		aiScraper, err = NewAIScraperService(apiKey, adapter.db)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to initialize AI scraper: %v\n", err)
+		} else {
+			fmt.Println("AI scraper initialized (API key found)")
+		}
+	} else {
+		fmt.Println("AI scraper disabled (ANTHROPIC_API_KEY not set)")
+	}
+
+	config := ServerConfig{
+		Port:      port,
+		DB:        adapter.db,
+		AIScraper: aiScraper,
+		DataPath:  dataDir,
+	}
+
+	return StartServer(config)
+}
+
 func main() {
 	// Set up cmd package callbacks
 	cmd.LaunchTUI = launchTUI
 	cmd.InitDB = initDB
 	cmd.InitAIScraper = initAIScraper
+	cmd.StartServer = startServer
 
 	// Execute the CLI
 	if err := cmd.Execute(); err != nil {

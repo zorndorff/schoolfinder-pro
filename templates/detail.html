@@ -6,6 +6,7 @@
     <title>{{.Title}} - School Finder</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <header>
@@ -105,6 +106,42 @@
                 </div>
             </div>
 
+            <!-- NAEP Assessment Data Section -->
+            <div class="card naep-section">
+                <div class="naep-header">
+                    <h2>📊 Nation's Report Card (NAEP) Data</h2>
+                    {{if not .NAEPData}}
+                    <button
+                        hx-post="/schools/{{.School.NCESSCH}}/naep"
+                        hx-target="#naep-data"
+                        hx-swap="innerHTML"
+                        hx-indicator="#naep-loading"
+                        class="btn btn-primary"
+                    >
+                        Load Assessment Data
+                    </button>
+                    {{end}}
+                </div>
+
+                <div id="naep-loading" class="htmx-indicator">
+                    <div class="spinner"></div>
+                    <p>Fetching NAEP assessment data...</p>
+                </div>
+
+                <div id="naep-data">
+                    {{if .NAEPData}}
+                        {{template "naep_data.html" .}}
+                    {{else}}
+                        <p class="help-text">
+                            Click "Load Assessment Data" to view standardized test results from the National Assessment
+                            of Educational Progress (NAEP), also known as "The Nation's Report Card."
+                            This data shows how students in this school's {{if .School.District}}district{{else}}state{{end}}
+                            perform compared to national averages in mathematics, reading, and science.
+                        </p>
+                    {{end}}
+                </div>
+            </div>
+
             <!-- AI Data Section -->
             <div class="card ai-section">
                 <div class="ai-header">
@@ -146,5 +183,6 @@
             <p>Data from NCES Common Core of Data (CCD) 2023-24 | <a href="https://github.com/yourusername/schoolfinder-pro">GitHub</a></p>
         </div>
     </footer>
+    <script src="/static/charts.js"></script>
 </body>
 </html>

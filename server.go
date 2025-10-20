@@ -12,10 +12,11 @@ import (
 
 // ServerConfig holds configuration for the web server
 type ServerConfig struct {
-	Port      int
-	DB        *DB
-	AIScraper *AIScraperService
-	DataPath  string
+	Port       int
+	DB         *DB
+	AIScraper  *AIScraperService
+	NAEPClient *NAEPClient
+	DataPath   string
 }
 
 // StartServer initializes and starts the HTTP server
@@ -32,11 +33,12 @@ func StartServer(config ServerConfig) error {
 	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
 
 	// Web handlers (HTMX HTML responses)
-	webHandler := NewWebHandler(config.DB, config.AIScraper)
+	webHandler := NewWebHandler(config.DB, config.AIScraper, config.NAEPClient)
 	r.Get("/", webHandler.SearchPage)
 	r.Post("/search", webHandler.SearchResults)
 	r.Get("/schools/{id}", webHandler.SchoolDetail)
 	r.Post("/schools/{id}/ai", webHandler.ExtractAI)
+	r.Post("/schools/{id}/naep", webHandler.FetchNAEP)
 
 	// API handlers (JSON responses)
 	apiHandler := &APIHandler{DB: config.DB, AIScraper: config.AIScraper}

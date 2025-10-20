@@ -1632,11 +1632,16 @@ func startServer(dbInterface cmd.DBInterface, port int, dataDir string) error {
 		fmt.Println("AI scraper disabled (ANTHROPIC_API_KEY not set)")
 	}
 
+	// Initialize NAEP client
+	naepClient := NewNAEPClient(adapter.db)
+	fmt.Println("NAEP client initialized")
+
 	config := ServerConfig{
-		Port:      port,
-		DB:        adapter.db,
-		AIScraper: aiScraper,
-		DataPath:  dataDir,
+		Port:       port,
+		DB:         adapter.db,
+		AIScraper:  aiScraper,
+		NAEPClient: naepClient,
+		DataPath:   dataDir,
 	}
 
 	return StartServer(config)

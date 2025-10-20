@@ -14,19 +14,21 @@ import (
 
 // WebHandler handles HTMX HTML requests
 type WebHandler struct {
-	DB        *DB
-	AIScraper *AIScraperService
-	templates *template.Template
+	DB         *DB
+	AIScraper  *AIScraperService
+	NAEPClient *NAEPClient
+	templates  *template.Template
 }
 
 // NewWebHandler creates a new WebHandler with parsed templates
-func NewWebHandler(db *DB, aiScraper *AIScraperService) *WebHandler {
+func NewWebHandler(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) *WebHandler {
 	tmpl := template.Must(template.ParseGlob("templates/*.html"))
 	template.Must(tmpl.ParseGlob("templates/partials/*.html"))
 	return &WebHandler{
-		DB:        db,
-		AIScraper: aiScraper,
-		templates: tmpl,
+		DB:         db,
+		AIScraper:  aiScraper,
+		NAEPClient: naepClient,
+		templates:  tmpl,
 	}
 }
 
@@ -111,10 +113,39 @@ func (h *WebHandler) SchoolDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Check if we have cached NAEP data
+	var naepData *NAEPData
+	if h.NAEPClient != nil && h.DB != nil {
+		// Try to load from cache with 90-day TTL
+		state, district, stateScoresJSON, districtScoresJSON, nationalScoresJSON, extractedAt, err := h.DB.LoadNAEPCache(school.NCESSCH, 90*24*time.Hour)
+		if err == nil && len(stateScoresJSON) > 0 {
+			// Parse the cached data
+			naepData = &NAEPData{
+				NCESSCH:     school.NCESSCH,
+				State:       state,
+				District:    district,
+				ExtractedAt: extractedAt,
+			}
+			// Unmarshal state scores
+			if len(stateScoresJSON) > 0 {
+				json.Unmarshal(stateScoresJSON, &naepData.StateScores)
+			}
+			// Unmarshal district scores
+			if len(districtScoresJSON) > 0 {
+				json.Unmarshal(districtScoresJSON, &naepData.DistrictScores)
+			}
+			// Unmarshal national scores
+			if len(nationalScoresJSON) > 0 {
+				json.Unmarshal(nationalScoresJSON, &naepData.NationalScores)
+			}
+		}
+	}
+
 	data := map[string]interface{}{
 		"Title":        school.Name,
 		"School":       school,
 		"EnhancedData": enhancedData,
+		"NAEPData":     naepData,
 	}
 
 	if err := h.templates.ExecuteTemplate(w, "detail.html", data); err != nil {
@@ -158,6 +189,46 @@ func (h *WebHandler) ExtractAI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.templates.ExecuteTemplate(w, "ai_data.html", data); err != nil {
+		log.Printf("Template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// FetchNAEP handles NAEP data fetching requests and returns NAEP data partial
+func (h *WebHandler) FetchNAEP(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	school, err := h.DB.GetSchoolByID(id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("Database error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if NAEP client is available
+	if h.NAEPClient == nil {
+		http.Error(w, "NAEP data not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Fetch NAEP data
+	naepData, err := h.NAEPClient.FetchNAEPData(school)
+	if err != nil {
+		log.Printf("NAEP fetch error: %v", err)
+		http.Error(w, "NAEP data fetch failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data := map[string]interface{}{
+		"NAEPData": naepData,
+		"School":   school,
+	}
+
+	if err := h.templates.ExecuteTemplate(w, "naep_data.html", data); err != nil {
 		log.Printf("Template error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}

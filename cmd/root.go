@@ -39,7 +39,7 @@ func SetupLogger(dataDir string) error {
 	logPath := filepath.Join(dataDir, "err.log")
 
 	// Create log file
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	_, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}

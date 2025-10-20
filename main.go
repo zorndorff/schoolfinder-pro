@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	
+	"schoolfinder/cmd"
 )
 
 const (
@@ -1261,16 +1264,11 @@ func (m model) savePromptView() string {
 	return b.String()
 }
 
-func main() {
-	dataDir := "tmpdata/"
-	if len(os.Args) > 1 {
-		dataDir = os.Args[1]
-	}
-
+// launchTUI starts the interactive TUI application
+func launchTUI(dataDir string) {
 	// Setup logger first
 	if err := setupLogger(dataDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to setup logger: %v\n", err)
-		// Continue without logging rather than fail
 	}
 
 	// Check for required data files
@@ -1347,11 +1345,278 @@ func main() {
 	p := tea.NewProgram(
 		initialModel(db, aiScraper, naepClient),
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(), // Enable mouse support
+		tea.WithMouseCellMotion(),
 	)
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running program: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// initDB initializes the database for CLI commands
+func initDB(dataDir string) (cmd.DBInterface, func(), error) {
+	// Setup logger
+	if err := setupLogger(dataDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to setup logger: %v\n", err)
+	}
+
+	// Check for required data files
+	missing, err := CheckDataFiles(dataDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check data files: %w", err)
+	}
+
+	// If files are missing, download them non-interactively
+	if len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "Error: Required data files are missing. Please run without subcommands to download them interactively.\n")
+		return nil, nil, fmt.Errorf("missing required data files")
+	}
+
+	db, err := NewDB(dataDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+
+	cleanup := func() {
+		db.Close()
+	}
+
+	return &dbAdapter{db: db}, cleanup, nil
+}
+
+// initAIScraper initializes the AI scraper for CLI commands
+func initAIScraper(db cmd.DBInterface) (cmd.AIScraperInterface, error) {
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
+	}
+
+	adapter := db.(*dbAdapter)
+	aiScraper, err := NewAIScraperService(apiKey, adapter.db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize AI scraper: %w", err)
+	}
+
+	return &aiScraperAdapter{scraper: aiScraper}, nil
+}
+
+// dbAdapter adapts *DB to cmd.DBInterface
+type dbAdapter struct {
+	db *DB
+}
+
+func (a *dbAdapter) SearchSchools(query string, state string, limit int) ([]cmd.SchoolData, error) {
+	schools, err := a.db.SearchSchools(query, state, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]cmd.SchoolData, len(schools))
+	for i, s := range schools {
+		result[i] = convertSchoolToCmd(s)
+	}
+	return result, nil
+}
+
+func (a *dbAdapter) GetSchoolByID(ncessch string) (*cmd.SchoolData, error) {
+	school, err := a.db.GetSchoolByID(ncessch)
+	if err != nil {
+		return nil, err
+	}
+	if school == nil {
+		return nil, nil
+	}
+	result := convertSchoolToCmd(*school)
+	return &result, nil
+}
+
+func (a *dbAdapter) Close() error {
+	return a.db.Close()
+}
+
+// convertSchoolToCmd converts School to cmd.SchoolData
+func convertSchoolToCmd(s School) cmd.SchoolData {
+	data := cmd.SchoolData{
+		NCESSCH:    s.NCESSCH,
+		Name:       s.Name,
+		State:      s.State,
+		StateName:  s.StateName,
+		City:       s.City,
+		District:   s.District,
+		SchoolYear: s.SchoolYear,
+	}
+
+	if s.DistrictID.Valid {
+		data.DistrictID = &s.DistrictID.String
+	}
+	if s.Teachers.Valid {
+		data.Teachers = &s.Teachers.Float64
+	}
+	if s.Level.Valid {
+		data.Level = &s.Level.String
+	}
+	if s.Phone.Valid {
+		data.Phone = &s.Phone.String
+	}
+	if s.Website.Valid {
+		data.Website = &s.Website.String
+	}
+	if s.Zip.Valid {
+		data.Zip = &s.Zip.String
+	}
+	if s.Street1.Valid {
+		data.Street1 = &s.Street1.String
+	}
+	if s.Street2.Valid {
+		data.Street2 = &s.Street2.String
+	}
+	if s.Street3.Valid {
+		data.Street3 = &s.Street3.String
+	}
+	if s.SchoolType.Valid {
+		data.SchoolType = &s.SchoolType.String
+	}
+	if s.GradeLow.Valid {
+		data.GradeLow = &s.GradeLow.String
+	}
+	if s.GradeHigh.Valid {
+		data.GradeHigh = &s.GradeHigh.String
+	}
+	if s.CharterText.Valid {
+		data.CharterText = &s.CharterText.String
+	}
+	if s.Enrollment.Valid {
+		data.Enrollment = &s.Enrollment.Int64
+	}
+
+	return data
+}
+
+// aiScraperAdapter adapts *AIScraperService to cmd.AIScraperInterface
+type aiScraperAdapter struct {
+	scraper *AIScraperService
+}
+
+func (a *aiScraperAdapter) ExtractSchoolDataWithWebSearch(school *cmd.SchoolData) (*cmd.EnhancedSchoolDataJSON, error) {
+	mainSchool := convertCmdToSchool(school)
+	enhanced, err := a.scraper.ExtractSchoolDataWithWebSearch(context.Background(), &mainSchool)
+	if err != nil {
+		return nil, err
+	}
+	return convertEnhancedToCmd(enhanced), nil
+}
+
+// convertCmdToSchool converts cmd.SchoolData to School
+func convertCmdToSchool(s *cmd.SchoolData) School {
+	school := School{
+		NCESSCH:    s.NCESSCH,
+		Name:       s.Name,
+		State:      s.State,
+		StateName:  s.StateName,
+		City:       s.City,
+		District:   s.District,
+		SchoolYear: s.SchoolYear,
+	}
+
+	if s.DistrictID != nil {
+		school.DistrictID = sql.NullString{String: *s.DistrictID, Valid: true}
+	}
+	if s.Teachers != nil {
+		school.Teachers = sql.NullFloat64{Float64: *s.Teachers, Valid: true}
+	}
+	if s.Level != nil {
+		school.Level = sql.NullString{String: *s.Level, Valid: true}
+	}
+	if s.Phone != nil {
+		school.Phone = sql.NullString{String: *s.Phone, Valid: true}
+	}
+	if s.Website != nil {
+		school.Website = sql.NullString{String: *s.Website, Valid: true}
+	}
+	if s.Zip != nil {
+		school.Zip = sql.NullString{String: *s.Zip, Valid: true}
+	}
+	if s.Street1 != nil {
+		school.Street1 = sql.NullString{String: *s.Street1, Valid: true}
+	}
+	if s.Street2 != nil {
+		school.Street2 = sql.NullString{String: *s.Street2, Valid: true}
+	}
+	if s.Street3 != nil {
+		school.Street3 = sql.NullString{String: *s.Street3, Valid: true}
+	}
+	if s.SchoolType != nil {
+		school.SchoolType = sql.NullString{String: *s.SchoolType, Valid: true}
+	}
+	if s.GradeLow != nil {
+		school.GradeLow = sql.NullString{String: *s.GradeLow, Valid: true}
+	}
+	if s.GradeHigh != nil {
+		school.GradeHigh = sql.NullString{String: *s.GradeHigh, Valid: true}
+	}
+	if s.CharterText != nil {
+		school.CharterText = sql.NullString{String: *s.CharterText, Valid: true}
+	}
+	if s.Enrollment != nil {
+		school.Enrollment = sql.NullInt64{Int64: *s.Enrollment, Valid: true}
+	}
+
+	return school
+}
+
+// convertEnhancedToCmd converts EnhancedSchoolData to cmd.EnhancedSchoolDataJSON
+func convertEnhancedToCmd(e *EnhancedSchoolData) *cmd.EnhancedSchoolDataJSON {
+	data := &cmd.EnhancedSchoolDataJSON{
+		NCESSCH:          e.NCESSCH,
+		SchoolName:       e.SchoolName,
+		ExtractedAt:      e.ExtractedAt.Format("2006-01-02T15:04:05Z07:00"),
+		SourceURL:        e.SourceURL,
+		MarkdownContent:  e.MarkdownContent,
+		Principal:        e.Principal,
+		VicePrincipals:   e.VicePrincipals,
+		Mascot:           e.Mascot,
+		SchoolColors:     e.SchoolColors,
+		Founded:          e.Founded,
+		MainOfficeEmail:  e.MainOfficeEmail,
+		MainOfficePhone:  e.MainOfficePhone,
+		APCourses:        e.APCourses,
+		Honors:           e.Honors,
+		SpecialPrograms:  e.SpecialPrograms,
+		Languages:        e.Languages,
+		Sports:           e.Sports,
+		Clubs:            e.Clubs,
+		Arts:             e.Arts,
+		Facilities:       e.Facilities,
+		BellSchedule:     e.BellSchedule,
+		SchoolHours:      e.SchoolHours,
+		Achievements:     e.Achievements,
+		Accreditations:   e.Accreditations,
+		Mission:          e.Mission,
+		Notes:            e.Notes,
+	}
+
+	for _, contact := range e.StaffContacts {
+		data.StaffContacts = append(data.StaffContacts, cmd.StaffContact{
+			Name:       contact.Name,
+			Title:      contact.Title,
+			Email:      contact.Email,
+			Phone:      contact.Phone,
+			Department: contact.Department,
+		})
+	}
+
+	return data
+}
+
+func main() {
+	// Set up cmd package callbacks
+	cmd.LaunchTUI = launchTUI
+	cmd.InitDB = initDB
+	cmd.InitAIScraper = initAIScraper
+
+	// Execute the CLI
+	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }

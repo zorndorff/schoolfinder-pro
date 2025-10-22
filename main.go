@@ -32,6 +32,11 @@ var logger *slog.Logger
 func setupLogger(dataDir string) error {
 	logPath := filepath.Join(dataDir, "err.log")
 
+	// Create data directory if it doesn't exist
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
 	// Create log file
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {

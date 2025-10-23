@@ -46,6 +46,38 @@ func CheckDataFiles(dataDir string) ([]DataFile, error) {
 	return missing, nil
 }
 
+// GetFileSize gets the size of a file from URL using HEAD request
+func GetFileSize(url string) (int64, error) {
+	resp, err := http.Head(url)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	return resp.ContentLength, nil
+}
+
+// GetTotalDownloadSize calculates the total size of all missing files
+func GetTotalDownloadSize(missing []DataFile) (int64, error) {
+	var totalSize int64
+	
+	for _, file := range missing {
+		size, err := GetFileSize(file.URL)
+		if err != nil {
+			// If we can't get the size for one file, continue with others
+			fmt.Printf("   Warning: Could not get size for %s: %v\n", file.Name, err)
+			continue
+		}
+		totalSize += size
+	}
+	
+	return totalSize, nil
+}
+
 // PromptUserForDownload asks the user if they want to download missing files
 func PromptUserForDownload(missing []DataFile) bool {
 	if len(missing) == 0 {
@@ -56,8 +88,18 @@ func PromptUserForDownload(missing []DataFile) bool {
 	for _, file := range missing {
 		fmt.Printf("   - %s\n", file.Name)
 	}
-	fmt.Println("\nThese files are required for the School Finder to work.")
-	fmt.Printf("Total download size: ~%d files (several hundred MB)\n", len(missing))
+	
+	// Get total download size
+	totalSize, err := GetTotalDownloadSize(missing)
+	if err != nil || totalSize == 0 {
+		fmt.Println("\nThese files are required for the School Finder to work.")
+		fmt.Printf("Total download size: ~%d files (size unknown)\n", len(missing))
+	} else {
+		totalMB := totalSize / 1024 / 1024
+		fmt.Println("\nThese files are required for the School Finder to work.")
+		fmt.Printf("Total download size: ~%d files (%d MB)\n", len(missing), totalMB)
+	}
+	
 	fmt.Print("\nWould you like to download them now? (y/N): ")
 
 	var response string
@@ -67,8 +109,8 @@ func PromptUserForDownload(missing []DataFile) bool {
 	return response == "y" || response == "yes"
 }
 
-// DownloadFile downloads a file from a URL and shows progress
-func DownloadFile(filepath string, url string) error {
+// DownloadFileWithProgress downloads a file with enhanced progress tracking
+func DownloadFileWithProgress(filepath string, url string, fileIndex, totalFiles int, fileSize, totalSize int64) error {
 	// Create the file
 	out, err := os.Create(filepath)
 	if err != nil {
@@ -88,13 +130,18 @@ func DownloadFile(filepath string, url string) error {
 		return fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	// Get the file size
-	size := resp.ContentLength
+	// Get the file size (use the provided size if available, otherwise use response)
+	size := fileSize
+	if size == 0 {
+		size = resp.ContentLength
+	}
 
-	// Create a progress reader
+	// Create a progress reader with enhanced tracking
 	counter := &ProgressCounter{
-		Total: size,
-		Name:  filepath,
+		Total:     size,
+		Name:      filepath,
+		FileIndex: fileIndex,
+		TotalFiles: totalFiles,
 	}
 
 	// Copy with progress
@@ -106,24 +153,42 @@ func DownloadFile(filepath string, url string) error {
 
 // ProgressCounter counts bytes as they're written and displays progress
 type ProgressCounter struct {
-	Total   int64
-	Current int64
-	Name    string
+	Total     int64
+	Current   int64
+	Name      string
+	FileIndex int
+	TotalFiles int
 }
 
 func (pc *ProgressCounter) Write(p []byte) (int, error) {
 	n := len(p)
 	pc.Current += int64(n)
 
-	// Calculate percentage
-	percentage := float64(pc.Current) / float64(pc.Total) * 100
-
-	// Print progress
-	fmt.Printf("\r   Downloading %s... %.1f%% (%d/%d MB)",
-		filepath.Base(pc.Name),
-		percentage,
-		pc.Current/1024/1024,
-		pc.Total/1024/1024)
+	// Calculate percentage and display appropriate format
+	var percentage float64
+	var currentMB, totalMB int64
+	
+	currentMB = pc.Current / 1024 / 1024
+	
+	if pc.Total > 0 {
+		percentage = float64(pc.Current) / float64(pc.Total) * 100
+		totalMB = pc.Total / 1024 / 1024
+		// Print progress with known size and file count
+		fmt.Printf("\r   Downloading %s... %.1f%% (%d/%d MB) [%d/%d]",
+			filepath.Base(pc.Name),
+			percentage,
+			currentMB,
+			totalMB,
+			pc.FileIndex,
+			pc.TotalFiles)
+	} else {
+		// Print progress with unknown size and file count
+		fmt.Printf("\r   Downloading %s... %d MB downloaded [%d/%d]",
+			filepath.Base(pc.Name),
+			currentMB,
+			pc.FileIndex,
+			pc.TotalFiles)
+	}
 
 	return n, nil
 }
@@ -193,9 +258,12 @@ func DownloadAndExtractFiles(dataDir string, missing []DataFile) error {
 	for i, file := range missing {
 		fmt.Printf("[%d/%d] Processing %s...\n", i+1, len(missing), file.Name)
 
-		// Download the ZIP file
+		// Get individual file size for progress tracking
+		fileSize, _ := GetFileSize(file.URL)
+
+		// Download the ZIP file with enhanced progress
 		zipPath := filepath.Join(tempDir, filepath.Base(file.URL))
-		if err := DownloadFile(zipPath, file.URL); err != nil {
+		if err := DownloadFileWithProgress(zipPath, file.URL, i+1, len(missing), fileSize, 0); err != nil {
 			return fmt.Errorf("failed to download %s: %w", file.URL, err)
 		}
 

@@ -112,6 +112,7 @@
                     <h2>📊 Nation's Report Card (NAEP) Data</h2>
                     {{if not .NAEPData}}
                     <button
+                        id="naep-load-btn"
                         hx-post="/schools/{{.School.NCESSCH}}/naep"
                         hx-target="#naep-data"
                         hx-swap="innerHTML"

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -219,6 +220,32 @@ func (h *WebHandler) FetchNAEP(w http.ResponseWriter, r *http.Request) {
 	naepData, err := h.NAEPClient.FetchNAEPData(school)
 	if err != nil {
 		log.Printf("NAEP fetch error: %v", err)
+		
+		// Check if this is a "no data available" error vs a real server error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no NAEP data available") ||
+		   strings.Contains(errMsg, "no NAEP grades applicable") {
+			// Return 200 with content indicating no data available
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`<div class="naep-no-data">
+				<p class="help-text error-message">
+					<strong>No NAEP Data Available</strong><br>
+					Assessment data is not available for this school.
+				</p>
+			</div>
+			<button
+				id="naep-load-btn"
+				class="btn btn-primary btn-disabled"
+				disabled
+				hx-swap-oob="true"
+			>
+				No NAEP Data Available
+			</button>`))
+			return
+		}
+		
+		// Real server error
 		http.Error(w, "NAEP data fetch failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

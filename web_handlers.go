@@ -208,8 +208,8 @@ func (h *WebHandler) ExtractAI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract AI data
-	enhancedData, err := h.AIScraper.ExtractSchoolDataWithWebSearch(r.Context(), school)
+	// Extract AI data using ScrapeSchoolWebsite which properly fills metadata and caches
+	enhancedData, err := h.AIScraper.ScrapeSchoolWebsite(r.Context(), school)
 	if err != nil {
 		log.Printf("AI extraction error: %v", err)
 		http.Error(w, "AI extraction failed: "+err.Error(), http.StatusInternalServerError)

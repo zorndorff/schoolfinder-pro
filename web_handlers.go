@@ -23,7 +23,26 @@ type WebHandler struct {
 
 // NewWebHandler creates a new WebHandler with parsed templates
 func NewWebHandler(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) *WebHandler {
-	tmpl := template.Must(template.ParseGlob("templates/*.html"))
+	// Create template with custom functions
+	funcMap := template.FuncMap{
+		"dict": func(values ...interface{}) map[string]interface{} {
+			if len(values)%2 != 0 {
+				panic("dict requires an even number of arguments")
+			}
+			dict := make(map[string]interface{}, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					panic("dict keys must be strings")
+				}
+				dict[key] = values[i+1]
+			}
+			return dict
+		},
+	}
+	
+	tmpl := template.New("").Funcs(funcMap)
+	template.Must(tmpl.ParseGlob("templates/*.html"))
 	template.Must(tmpl.ParseGlob("templates/partials/*.html"))
 	return &WebHandler{
 		DB:         db,

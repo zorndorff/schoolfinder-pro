@@ -636,14 +636,52 @@ details[open] summary {
 /* NAEP Grade Section */
 .naep-grade-section {
   margin-bottom: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
 }
 
-.naep-grade-section h3 {
+.naep-grade-section summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 1rem 1.5rem;
+  background: var(--bg-secondary);
+  border: none;
+  transition: background 0.2s;
+  list-style: none;
+}
+
+.naep-grade-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.naep-grade-section summary:hover {
+  background: var(--border);
+}
+
+.naep-grade-section summary h3 {
   font-size: 1.25rem;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid var(--primary);
+  margin: 0;
+  padding: 0;
+  border: none;
   color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+}
+
+.naep-grade-section summary h3::before {
+  content: '▶';
+  margin-right: 0.75rem;
+  transition: transform 0.2s;
+  display: inline-block;
+}
+
+.naep-grade-section[open] summary h3::before {
+  transform: rotate(90deg);
+}
+
+.naep-grade-section .grade-content {
+  padding: 1.5rem;
 }
 
 /* NAEP Subject Card */

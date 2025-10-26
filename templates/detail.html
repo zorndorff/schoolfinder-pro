@@ -11,7 +11,7 @@
 <body>
     <header>
         <div class="container">
-            <h1><a href="/">School Finder</a></h1>
+            <h1><img src="/static/favicon.png" alt="School Finder Icon" class="favicon"/> <a href="/">School Finder</a></h1>
             <p class="subtitle">Search 102K+ schools from the Common Core of Data</p>
         </div>
     </header>
@@ -112,6 +112,7 @@
                     <h2>📊 Nation's Report Card (NAEP) Data</h2>
                     {{if not .NAEPData}}
                     <button
+                        id="naep-load-btn"
                         hx-post="/schools/{{.School.NCESSCH}}/naep"
                         hx-target="#naep-data"
                         hx-swap="innerHTML"
@@ -147,6 +148,7 @@
                 <div class="ai-header">
                     <h2>Enhanced School Data (AI Extracted)</h2>
                     {{if not .EnhancedData}}
+                    {{if .AIAvailable}}
                     <button
                         hx-post="/schools/{{.School.NCESSCH}}/ai"
                         hx-target="#ai-data"
@@ -156,6 +158,14 @@
                     >
                         Extract Website Data
                     </button>
+                    {{else}}
+                    <button
+                        class="btn btn-primary btn-disabled"
+                        disabled
+                    >
+                        AI Not Available
+                    </button>
+                    {{end}}
                     {{end}}
                 </div>
 
@@ -183,6 +193,5 @@
             <p>Data from NCES Common Core of Data (CCD) 2023-24 | <a href="https://github.com/yourusername/schoolfinder-pro">GitHub</a></p>
         </div>
     </footer>
-    <script src="/static/charts.js"></script>
 </body>
 </html>

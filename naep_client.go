@@ -174,6 +174,11 @@ func (c *NAEPClient) FetchNAEPData(school *School) (*NAEPData, error) {
 		}
 	}
 
+	// Sort all scores by grade, subject (alphabetically), and year (most recent first)
+	sortNAEPScores(data.StateScores)
+	sortNAEPScores(data.DistrictScores)
+	sortNAEPScores(data.NationalScores)
+
 	// Cache the data
 	c.cacheData(school.NCESSCH, data)
 
@@ -458,7 +463,48 @@ func (c *NAEPClient) getCachedData(ncessch string) (*NAEPData, error) {
 		}
 	}
 
+	// Sort all scores by grade, subject (alphabetically), and year (most recent first)
+	sortNAEPScores(data.StateScores)
+	sortNAEPScores(data.DistrictScores)
+	sortNAEPScores(data.NationalScores)
+
 	return data, nil
+}
+
+// sortNAEPScores sorts NAEP scores by:
+// 1. Grade (ascending: 4, 8)
+// 2. Subject (alphabetically: mathematics, reading, science)
+// 3. Year (descending: most recent first)
+func sortNAEPScores(scores []NAEPScore) {
+	if len(scores) == 0 {
+		return
+	}
+
+	// Sort
+	for i := 0; i < len(scores)-1; i++ {
+		for j := i + 1; j < len(scores); j++ {
+			// First compare by grade
+			if scores[i].Grade != scores[j].Grade {
+				if scores[i].Grade > scores[j].Grade {
+					scores[i], scores[j] = scores[j], scores[i]
+				}
+				continue
+			}
+
+			// Same grade, compare by subject (alphabetically)
+			if scores[i].Subject != scores[j].Subject {
+				if scores[i].Subject > scores[j].Subject {
+					scores[i], scores[j] = scores[j], scores[i]
+				}
+				continue
+			}
+
+			// Same grade and subject, compare by year (descending - most recent first)
+			if scores[i].Year < scores[j].Year {
+				scores[i], scores[j] = scores[j], scores[i]
+			}
+		}
+	}
 }
 
 // cacheData caches NAEP data to the database

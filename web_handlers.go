@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -22,7 +23,38 @@ type WebHandler struct {
 
 // NewWebHandler creates a new WebHandler with parsed templates
 func NewWebHandler(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) *WebHandler {
-	tmpl := template.Must(template.ParseGlob("templates/*.html"))
+	// Create template with custom functions
+	funcMap := template.FuncMap{
+		"dict": func(values ...interface{}) map[string]interface{} {
+			if len(values)%2 != 0 {
+				panic("dict requires an even number of arguments")
+			}
+			dict := make(map[string]interface{}, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					panic("dict keys must be strings")
+				}
+				dict[key] = values[i+1]
+			}
+			return dict
+		},
+		"sub": func(a, b float64) float64 {
+			return a - b
+		},
+		"getAchievementLevels": func(naepData *NAEPData, subject string, grade int, useDistrict bool) map[string]float64 {
+			belowBasic, basic, proficient, advanced := naepData.GetAchievementLevels(subject, grade, useDistrict)
+			return map[string]float64{
+				"belowBasic": belowBasic,
+				"basic":      basic,
+				"proficient": proficient,
+				"advanced":   advanced,
+			}
+		},
+	}
+	
+	tmpl := template.New("").Funcs(funcMap)
+	template.Must(tmpl.ParseGlob("templates/*.html"))
 	template.Must(tmpl.ParseGlob("templates/partials/*.html"))
 	return &WebHandler{
 		DB:         db,
@@ -146,6 +178,7 @@ func (h *WebHandler) SchoolDetail(w http.ResponseWriter, r *http.Request) {
 		"School":       school,
 		"EnhancedData": enhancedData,
 		"NAEPData":     naepData,
+		"AIAvailable":  h.AIScraper != nil,
 	}
 
 	if err := h.templates.ExecuteTemplate(w, "detail.html", data); err != nil {
@@ -175,8 +208,8 @@ func (h *WebHandler) ExtractAI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract AI data
-	enhancedData, err := h.AIScraper.ExtractSchoolDataWithWebSearch(r.Context(), school)
+	// Extract AI data using ScrapeSchoolWebsite which properly fills metadata and caches
+	enhancedData, err := h.AIScraper.ScrapeSchoolWebsite(r.Context(), school)
 	if err != nil {
 		log.Printf("AI extraction error: %v", err)
 		http.Error(w, "AI extraction failed: "+err.Error(), http.StatusInternalServerError)
@@ -219,6 +252,32 @@ func (h *WebHandler) FetchNAEP(w http.ResponseWriter, r *http.Request) {
 	naepData, err := h.NAEPClient.FetchNAEPData(school)
 	if err != nil {
 		log.Printf("NAEP fetch error: %v", err)
+		
+		// Check if this is a "no data available" error vs a real server error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no NAEP data available") ||
+		   strings.Contains(errMsg, "no NAEP grades applicable") {
+			// Return 200 with content indicating no data available
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`<div class="naep-no-data">
+				<p class="help-text error-message">
+					<strong>No NAEP Data Available</strong><br>
+					Assessment data is not available for this school.
+				</p>
+			</div>
+			<button
+				id="naep-load-btn"
+				class="btn btn-primary btn-disabled"
+				disabled
+				hx-swap-oob="true"
+			>
+				No NAEP Data Available
+			</button>`))
+			return
+		}
+		
+		// Real server error
 		http.Error(w, "NAEP data fetch failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

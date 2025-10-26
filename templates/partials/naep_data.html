@@ -1,128 +1,162 @@
-{{define "naep_data.html"}}
-{{if .NAEPData}}
+{{define "naep_data.html"}} {{if .NAEPData}}
 <div class="naep-content">
-    <p class="naep-info">
-        <strong>Assessment Data:</strong> Nation's Report Card (NAEP) - National standardized test measuring student achievement
-        <br>
-        {{if .NAEPData.DistrictScores}}
-        <strong>District:</strong> {{.NAEPData.District}} (more specific than state average)
-        {{else}}
-        <strong>State:</strong> {{.NAEPData.State}}
-        {{end}}
-        <br>
-        <strong>Data cached:</strong> {{.NAEPData.ExtractedAt.Format "2006-01-02"}} (90-day cache)
-    </p>
-
-    <!-- Achievement Level Legend -->
-    <div class="naep-legend">
-        <strong>Achievement Levels:</strong>
-        <span class="legend-item">
-            <span class="legend-color below-basic"></span> Below Basic
-        </span>
-        <span class="legend-item">
-            <span class="legend-color basic"></span> Basic
-        </span>
-        <span class="legend-item">
-            <span class="legend-color proficient"></span> Proficient
-        </span>
-        <span class="legend-item">
-            <span class="legend-color advanced"></span> Advanced
-        </span>
-    </div>
-
-    {{$scores := .NAEPData.StateScores}}
+  <p class="naep-info">
+    <strong>Assessment Data:</strong> Nation's Report Card (NAEP) - National
+    standardized test measuring student achievement<br />
     {{if .NAEPData.DistrictScores}}
-        {{$scores = .NAEPData.DistrictScores}}
-    {{end}}
+    <strong>District:</strong> {{.NAEPData.District}} (more specific than state
+    average) {{else}} <strong>State:</strong> {{.NAEPData.State}} {{end}}<br />
+    <strong>Data cached:</strong> {{.NAEPData.ExtractedAt.Format "2006-01-02"}}
+    (90-day cache)
+  </p>
 
-    <!-- Iterate through all scores and display them -->
-    {{range $scores}}
-        <div class="naep-subject-card">
-            <div class="subject-header">
-                <h4>
-                    Grade {{.Grade}} -
-                    {{if eq .Subject "mathematics"}}Mathematics
-                    {{else if eq .Subject "reading"}}Reading
-                    {{else if eq .Subject "science"}}Science
-                    {{else}}{{.Subject}}{{end}}
-                </h4>
-                {{if gt .MeanScore 0.0}}
-                <span class="score-badge">{{printf "%.0f" .MeanScore}} pts</span>
-                {{end}}
-            </div>
+  <!-- Achievement Level Legend -->
+  <div class="naep-legend">
+    <strong>Achievement Levels:</strong>
+    <span class="legend-item">
+      <span class="legend-color below-basic"></span> Below Basic
+    </span>
+    <span class="legend-item">
+      <span class="legend-color basic"></span> Basic
+    </span>
+    <span class="legend-item">
+      <span class="legend-color proficient"></span> Proficient
+    </span>
+    <span class="legend-item">
+      <span class="legend-color advanced"></span> Advanced
+    </span>
+  </div>
 
-            <div class="subject-stats">
-                <div class="stat-item">
-                    <span class="stat-label">Proficient or Above:</span>
-                    <span class="stat-value proficient-pct">{{printf "%.0f" .AtProficient}}%</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Year:</span>
-                    <span class="stat-value">{{.Year}}</span>
-                </div>
-            </div>
+  {{$scores := .NAEPData.StateScores}} {{if .NAEPData.DistrictScores}}{{$scores
+  = .NAEPData.DistrictScores}}{{end}}
 
-            <!-- Achievement Distribution Bar -->
-            {{if gt .AtProficient 0.0}}
-            <div class="achievement-bar-container">
-                <div class="achievement-bar">
-                    <!-- Simplified: assume Below Basic ~30%, Basic ~35%, rest is Prof+ -->
-                    <div class="bar-segment below-basic" style="width: 30%">
-                        <span class="bar-label">30%</span>
-                    </div>
-                    <div class="bar-segment basic" style="width: 35%">
-                        <span class="bar-label">35%</span>
-                    </div>
-                    <div class="bar-segment proficient-advanced" style="width: {{.AtProficient}}%">
-                        <span class="bar-label">{{printf "%.0f" .AtProficient}}%</span>
-                    </div>
-                </div>
-            </div>
-            {{end}}
+  <!-- Grade Sections -->
+  {{template "grade_section" dict "Grade" 4 "Scores" $scores "NAEPData"
+  $.NAEPData}} {{template "grade_section" dict "Grade" 8 "Scores" $scores
+  "NAEPData" $.NAEPData}}
 
-            <!-- Find and display national comparison -->
-            {{if $.NAEPData.NationalScores}}
-                {{$currentSubject := .Subject}}
-                {{$currentGrade := .Grade}}
-                {{$currentProf := .AtProficient}}
-                {{range $.NAEPData.NationalScores}}
-                    {{if and (eq .Subject $currentSubject) (eq .Grade $currentGrade)}}
-                        <div class="national-comparison">
-                            <div class="comparison-header">
-                                <strong>vs. National Average</strong>
-                                {{if ge $currentProf .AtProficient}}
-                                <span class="trend-indicator positive">↑ Above</span>
-                                {{else}}
-                                <span class="trend-indicator negative">↓ Below</span>
-                                {{end}}
-                            </div>
-                            <div class="comparison-stats">
-                                <div class="comparison-row">
-                                    <span>Local Proficient+:</span>
-                                    <strong>{{printf "%.1f" $currentProf}}%</strong>
-                                </div>
-                                <div class="comparison-row">
-                                    <span>National Proficient+:</span>
-                                    <strong>{{printf "%.1f" .AtProficient}}%</strong>
-                                </div>
-                            </div>
-                        </div>
-                    {{end}}
-                {{end}}
-            {{end}}
-        </div>
-    {{end}}
-
-    <!-- Parent Guidance Note -->
-    <div class="naep-guidance">
-        <h4>💡 What this means for parents:</h4>
-        <ul>
-            <li><strong>Proficient/Advanced:</strong> Students demonstrate solid academic performance at grade level</li>
-            <li><strong>Basic:</strong> Students show partial mastery of grade-level skills</li>
-            <li><strong>Below Basic:</strong> Students need additional support to reach grade-level expectations</li>
-            <li><strong>Important:</strong> These are {{if .NAEPData.DistrictScores}}district{{else}}state{{end}} averages - individual school results may vary</li>
-        </ul>
-    </div>
+  <!-- Parent Guidance Note -->
+  <div class="naep-guidance">
+    <h4>💡 What this means for parents:</h4>
+    <ul>
+      <li>
+        <strong>Proficient/Advanced:</strong> Students demonstrate solid
+        academic performance at grade level
+      </li>
+      <li>
+        <strong>Basic:</strong> Students show partial mastery of grade-level
+        skills
+      </li>
+      <li>
+        <strong>Below Basic:</strong> Students need additional support to reach
+        grade-level expectations
+      </li>
+      <li>
+        <strong>Important:</strong> These are {{if
+        .NAEPData.DistrictScores}}district{{else}}state{{end}} averages -
+        individual school results may vary
+      </li>
+    </ul>
+  </div>
 </div>
-{{end}}
-{{end}}
+{{end}} {{end}} {{define "grade_section"}} {{$hasGrade := false}} {{range
+.Scores}}{{if eq .Grade $.Grade}}{{$hasGrade = true}}{{end}}{{end}} {{if
+$hasGrade}}
+<details class="naep-grade-section" open>
+  <summary class="grade-summary">
+    <h3>Grade {{.Grade}} Assessment Results</h3>
+  </summary>
+  <div class="grade-content">
+    {{range .Scores}} {{if eq .Grade $.Grade}}
+    <div class="naep-subject-card">
+      <div class="subject-header">
+        <h4>
+          {{if eq .Subject "mathematics"}}Mathematics {{else if eq .Subject
+          "reading"}}Reading {{else if eq .Subject "science"}}Science
+          {{else}}{{.Subject}}{{end}}
+        </h4>
+        {{if gt .MeanScore 0.0}}
+        <span class="score-badge">{{printf "%.0f" .MeanScore}} pts</span>
+        {{end}}
+      </div>
+
+      <div class="subject-stats">
+        <div class="stat-item">
+          <span class="stat-label">Proficient or Above:</span>
+          <span class="stat-value proficient-pct"
+            >{{printf "%.0f" .AtProficient}}%</span
+          >
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Year:</span>
+          <span class="stat-value">{{.Year}}</span>
+        </div>
+      </div>
+
+      <!-- Achievement Distribution Bar -->
+      {{if gt .AtProficient 0.0}}
+      {{$useDistrict := false}}
+      {{if $.NAEPData.DistrictScores}}{{$useDistrict = true}}{{end}}
+      {{$levels := getAchievementLevels $.NAEPData .Subject .Grade $useDistrict}}
+      <div class="achievement-bar-container">
+        <div class="achievement-bar">
+          {{if gt $levels.belowBasic 0.0}}
+          <div class="bar-segment below-basic" style="width: {{printf "%.1f" $levels.belowBasic}}%">
+            <span class="bar-label">{{printf "%.0f" $levels.belowBasic}}%</span>
+          </div>
+          {{end}}
+          {{if gt $levels.basic 0.0}}
+          <div class="bar-segment basic" style="width: {{printf "%.1f" $levels.basic}}%">
+            <span class="bar-label">{{printf "%.0f" $levels.basic}}%</span>
+          </div>
+          {{end}}
+          {{if gt $levels.proficient 0.0}}
+          <div class="bar-segment proficient" style="width: {{printf "%.1f" $levels.proficient}}%">
+            <span class="bar-label">{{printf "%.0f" $levels.proficient}}%</span>
+          </div>
+          {{end}}
+          {{if gt $levels.advanced 0.0}}
+          <div class="bar-segment advanced" style="width: {{printf "%.1f" $levels.advanced}}%">
+            <span class="bar-label">{{printf "%.0f" $levels.advanced}}%</span>
+          </div>
+          {{end}}
+        </div>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-style: italic;">
+            * Below Basic and Basic percentages are estimated based on typical NAEP patterns.
+          Only the combined Proficient+Advanced ({{printf "%.0f" .AtProficient}}%) is actual data from NAEP.
+        </p>
+      </div>
+      {{end}}
+
+      <!-- National Comparison -->
+      {{template "national_comparison" dict "CurrentSubject" .Subject
+      "CurrentGrade" .Grade "CurrentProf" .AtProficient "NationalScores"
+      $.NAEPData.NationalScores}}
+    </div>
+    {{end}} {{end}}
+  </div>
+</details>
+{{end}} {{end}} {{define "national_comparison"}} {{if .NationalScores}} {{range
+.NationalScores}} {{if and (eq .Subject $.CurrentSubject) (eq .Grade
+$.CurrentGrade)}}
+<div class="national-comparison">
+  <div class="comparison-header">
+    <strong>vs. National Average</strong>
+    {{if ge $.CurrentProf .AtProficient}}
+    <span class="trend-indicator positive">↑ Above</span>
+    {{else}}
+    <span class="trend-indicator negative">↓ Below</span>
+    {{end}}
+  </div>
+  <div class="comparison-stats">
+    <div class="comparison-row">
+      <span>Local Proficient+:</span>
+      <strong>{{printf "%.1f" $.CurrentProf}}%</strong>
+    </div>
+    <div class="comparison-row">
+      <span>National Proficient+:</span>
+      <strong>{{printf "%.1f" .AtProficient}}%</strong>
+    </div>
+  </div>
+</div>
+{{end}} {{end}} {{end}} {{end}}

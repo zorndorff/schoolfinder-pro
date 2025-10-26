@@ -32,6 +32,11 @@ func StartServer(config ServerConfig) error {
 	fileServer := http.FileServer(http.Dir("./static"))
 	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
 
+	// Favicon route - serve from project root
+	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, "./static/favicon.ico")
+	})
+
 	// Web handlers (HTMX HTML responses)
 	webHandler := NewWebHandler(config.DB, config.AIScraper, config.NAEPClient)
 	r.Get("/", webHandler.SearchPage)

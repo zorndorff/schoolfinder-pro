@@ -147,6 +147,7 @@ func (h *WebHandler) SchoolDetail(w http.ResponseWriter, r *http.Request) {
 		"School":       school,
 		"EnhancedData": enhancedData,
 		"NAEPData":     naepData,
+		"AIAvailable":  h.AIScraper != nil,
 	}
 
 	if err := h.templates.ExecuteTemplate(w, "detail.html", data); err != nil {

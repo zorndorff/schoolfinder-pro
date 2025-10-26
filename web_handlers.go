@@ -39,6 +39,18 @@ func NewWebHandler(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) 
 			}
 			return dict
 		},
+		"sub": func(a, b float64) float64 {
+			return a - b
+		},
+		"getAchievementLevels": func(naepData *NAEPData, subject string, grade int, useDistrict bool) map[string]float64 {
+			belowBasic, basic, proficient, advanced := naepData.GetAchievementLevels(subject, grade, useDistrict)
+			return map[string]float64{
+				"belowBasic": belowBasic,
+				"basic":      basic,
+				"proficient": proficient,
+				"advanced":   advanced,
+			}
+		},
 	}
 	
 	tmpl := template.New("").Funcs(funcMap)

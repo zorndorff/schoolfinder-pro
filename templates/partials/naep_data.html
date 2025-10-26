@@ -95,22 +95,36 @@ $hasGrade}}
 
       <!-- Achievement Distribution Bar -->
       {{if gt .AtProficient 0.0}}
+      {{$useDistrict := false}}
+      {{if $.NAEPData.DistrictScores}}{{$useDistrict = true}}{{end}}
+      {{$levels := getAchievementLevels $.NAEPData .Subject .Grade $useDistrict}}
       <div class="achievement-bar-container">
         <div class="achievement-bar">
-          <!-- Simplified: assume Below Basic ~30%, Basic ~35%, rest is Prof+ -->
-          <div class="bar-segment below-basic" style="width: 30%">
-            <span class="bar-label">30%</span>
+          {{if gt $levels.belowBasic 0.0}}
+          <div class="bar-segment below-basic" style="width: {{printf "%.1f" $levels.belowBasic}}%">
+            <span class="bar-label">{{printf "%.0f" $levels.belowBasic}}%</span>
           </div>
-          <div class="bar-segment basic" style="width: 35%">
-            <span class="bar-label">35%</span>
+          {{end}}
+          {{if gt $levels.basic 0.0}}
+          <div class="bar-segment basic" style="width: {{printf "%.1f" $levels.basic}}%">
+            <span class="bar-label">{{printf "%.0f" $levels.basic}}%</span>
           </div>
-          <div
-            class="bar-segment proficient-advanced"
-            style="width: {{.AtProficient}}%"
-          >
-            <span class="bar-label">{{printf "%.0f" .AtProficient}}%</span>
+          {{end}}
+          {{if gt $levels.proficient 0.0}}
+          <div class="bar-segment proficient" style="width: {{printf "%.1f" $levels.proficient}}%">
+            <span class="bar-label">{{printf "%.0f" $levels.proficient}}%</span>
           </div>
+          {{end}}
+          {{if gt $levels.advanced 0.0}}
+          <div class="bar-segment advanced" style="width: {{printf "%.1f" $levels.advanced}}%">
+            <span class="bar-label">{{printf "%.0f" $levels.advanced}}%</span>
+          </div>
+          {{end}}
         </div>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-style: italic;">
+            * Below Basic and Basic percentages are estimated based on typical NAEP patterns.
+          Only the combined Proficient+Advanced ({{printf "%.0f" .AtProficient}}%) is actual data from NAEP.
+        </p>
       </div>
       {{end}}
 

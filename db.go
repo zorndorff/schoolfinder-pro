@@ -72,7 +72,7 @@ func NewDB(dataDir string) (*DB, error) {
 			}
 			return nil, fmt.Errorf("failed to initialize database: %w", err)
 		}
-		fmt.Println("✅ Database initialized successfully!\n")
+		fmt.Println("✅ Database initialized successfully!")
 		if logger != nil {
 			logger.Info("Database initialized successfully", "db_path", dbPath)
 		}

@@ -1,0 +1,162 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+
+version: 2
+
+project_name: schoolfinder
+
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+    # you may remove this if you don't need go generate
+    - go generate ./...
+
+builds:
+  - binary: schoolfinder
+    main: ./main.go
+    env:
+      - CGO_ENABLED=1
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # CGO is required for DuckDB, so we need to handle cross-compilation carefully
+    ignore:
+      # Windows ARM64 CGO cross-compilation is complex
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - format: tar.gz
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+      - CLAUDE.md
+      - docs/**/*
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "Bug fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Performance improvements"
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: zorndorff
+    name: schoolfinder-pro
+  draft: false
+  prerelease: auto
+  mode: append
+  header: |
+    ## School Finder {{ .Tag }} ({{ .Date }})
+
+    Welcome to this release of School Finder!
+
+    ### Installation
+
+    Download the appropriate archive for your operating system below.
+
+    #### macOS
+    ```bash
+    # For Apple Silicon (M1/M2/M3)
+    tar -xzf schoolfinder_{{ .Version }}_Darwin_arm64.tar.gz
+
+    # For Intel Macs
+    tar -xzf schoolfinder_{{ .Version }}_Darwin_x86_64.tar.gz
+
+    # Move to PATH
+    sudo mv schoolfinder /usr/local/bin/
+    ```
+
+    #### Linux
+    ```bash
+    # For x86_64
+    tar -xzf schoolfinder_{{ .Version }}_Linux_x86_64.tar.gz
+
+    # For ARM64
+    tar -xzf schoolfinder_{{ .Version }}_Linux_arm64.tar.gz
+
+    # Move to PATH
+    sudo mv schoolfinder /usr/local/bin/
+    ```
+
+    #### Windows
+    ```powershell
+    # Extract the zip file
+    # Add schoolfinder.exe to your PATH
+    ```
+
+    ### Usage
+
+    ```bash
+    # TUI mode (terminal interface)
+    schoolfinder
+
+    # Web server mode
+    schoolfinder serve
+
+    # Search schools
+    schoolfinder search "Lincoln High"
+
+    # Get school details
+    schoolfinder details <NCES_ID>
+    ```
+  footer: |
+    ---
+
+    **Full Changelog**: https://github.com/zorndorff/schoolfinder-pro/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    ## Notes
+
+    - DuckDB requires CGO, so binaries are platform-specific
+    - Data files are downloaded automatically on first run
+    - See [CLAUDE.md](https://github.com/zorndorff/schoolfinder-pro/blob/main/CLAUDE.md) for full documentation

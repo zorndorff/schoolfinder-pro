@@ -111,16 +111,15 @@
                 <div class="naep-header">
                     <h2>📊 Nation's Report Card (NAEP) Data</h2>
                     {{if not .NAEPData}}
-                    <button
-                        id="naep-load-btn"
+                    <!-- Auto-load NAEP data on page load -->
+                    <div
                         hx-post="/schools/{{.School.NCESSCH}}/naep"
+                        hx-trigger="load"
                         hx-target="#naep-data"
                         hx-swap="innerHTML"
                         hx-indicator="#naep-loading"
-                        class="btn btn-primary"
-                    >
-                        Load Assessment Data
-                    </button>
+                        style="display: none;"
+                    ></div>
                     {{end}}
                 </div>
 
@@ -134,7 +133,7 @@
                         {{template "naep_data.html" .}}
                     {{else}}
                         <p class="help-text">
-                            Click "Load Assessment Data" to view standardized test results from the National Assessment
+                            Loading standardized test results from the National Assessment
                             of Educational Progress (NAEP), also known as "The Nation's Report Card."
                             This data shows how students in this school's {{if .School.District}}district{{else}}state{{end}}
                             perform compared to national averages in mathematics, reading, and science.

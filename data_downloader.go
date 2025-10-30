@@ -253,7 +253,7 @@ func DownloadAndExtractFiles(dataDir string, missing []DataFile) error {
 	defer os.RemoveAll(tempDir) // Clean up temp directory
 
 	fmt.Println("\n📥 Downloading data files...")
-	fmt.Println("This may take several minutes depending on your connection.\n")
+	fmt.Println("This may take several minutes depending on your connection.")
 
 	for i, file := range missing {
 		fmt.Printf("[%d/%d] Processing %s...\n", i+1, len(missing), file.Name)
@@ -279,6 +279,6 @@ func DownloadAndExtractFiles(dataDir string, missing []DataFile) error {
 		fmt.Println()
 	}
 
-	fmt.Println("✅ All data files downloaded and extracted successfully!\n")
+	fmt.Println("✅ All data files downloaded and extracted successfully!")
 	return nil
 }

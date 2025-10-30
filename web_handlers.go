@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -21,40 +22,35 @@ type WebHandler struct {
 	templates  *template.Template
 }
 
+// NAEPScoreView extends NAEPScore with pre-calculated achievement levels for templating
+type NAEPScoreView struct {
+	NAEPScore
+	BelowBasicPct    float64
+	BasicPct         float64
+	ProficientPct    float64
+	AdvancedPct      float64
+	NationalScore    *NAEPScoreView // Matching national score for comparison
+	NationalCompare  string         // "Above" or "Below"
+}
+
+// NAEPDataView wraps NAEPData with enriched scores for templating
+type NAEPDataView struct {
+	NCESSCH         string
+	State           string
+	District        string
+	ExtractedAt     time.Time
+	StateScores     []NAEPScoreView
+	DistrictScores  []NAEPScoreView
+	NationalScores  []NAEPScoreView
+	UseDistrict     bool
+	Grade4Scores    []NAEPScoreView
+	Grade8Scores    []NAEPScoreView
+	NationalByKey   map[string]*NAEPScoreView // key: "subject-grade"
+}
+
 // NewWebHandler creates a new WebHandler with parsed templates
 func NewWebHandler(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) *WebHandler {
-	// Create template with custom functions
-	funcMap := template.FuncMap{
-		"dict": func(values ...interface{}) map[string]interface{} {
-			if len(values)%2 != 0 {
-				panic("dict requires an even number of arguments")
-			}
-			dict := make(map[string]interface{}, len(values)/2)
-			for i := 0; i < len(values); i += 2 {
-				key, ok := values[i].(string)
-				if !ok {
-					panic("dict keys must be strings")
-				}
-				dict[key] = values[i+1]
-			}
-			return dict
-		},
-		"sub": func(a, b float64) float64 {
-			return a - b
-		},
-		"getAchievementLevels": func(naepData *NAEPData, subject string, grade int, useDistrict bool) map[string]float64 {
-			belowBasic, basic, proficient, advanced := naepData.GetAchievementLevels(subject, grade, useDistrict)
-			return map[string]float64{
-				"belowBasic": belowBasic,
-				"basic":      basic,
-				"proficient": proficient,
-				"advanced":   advanced,
-			}
-		},
-	}
-	
-	tmpl := template.New("").Funcs(funcMap)
-	template.Must(tmpl.ParseGlob("templates/*.html"))
+	tmpl := template.Must(template.ParseGlob("templates/*.html"))
 	template.Must(tmpl.ParseGlob("templates/partials/*.html"))
 	return &WebHandler{
 		DB:         db,
@@ -146,13 +142,13 @@ func (h *WebHandler) SchoolDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if we have cached NAEP data
-	var naepData *NAEPData
+	var naepView *NAEPDataView
 	if h.NAEPClient != nil && h.DB != nil {
 		// Try to load from cache with 90-day TTL
 		state, district, stateScoresJSON, districtScoresJSON, nationalScoresJSON, extractedAt, err := h.DB.LoadNAEPCache(school.NCESSCH, 90*24*time.Hour)
 		if err == nil && len(stateScoresJSON) > 0 {
 			// Parse the cached data
-			naepData = &NAEPData{
+			naepData := &NAEPData{
 				NCESSCH:     school.NCESSCH,
 				State:       state,
 				District:    district,
@@ -170,6 +166,8 @@ func (h *WebHandler) SchoolDetail(w http.ResponseWriter, r *http.Request) {
 			if len(nationalScoresJSON) > 0 {
 				json.Unmarshal(nationalScoresJSON, &naepData.NationalScores)
 			}
+			// Enrich the cached data for template
+			naepView = h.enrichNAEPData(naepData)
 		}
 	}
 
@@ -177,7 +175,7 @@ func (h *WebHandler) SchoolDetail(w http.ResponseWriter, r *http.Request) {
 		"Title":        school.Name,
 		"School":       school,
 		"EnhancedData": enhancedData,
-		"NAEPData":     naepData,
+		"NAEPData":     naepView,
 		"AIAvailable":  h.AIScraper != nil,
 	}
 
@@ -252,7 +250,7 @@ func (h *WebHandler) FetchNAEP(w http.ResponseWriter, r *http.Request) {
 	naepData, err := h.NAEPClient.FetchNAEPData(school)
 	if err != nil {
 		log.Printf("NAEP fetch error: %v", err)
-		
+
 		// Check if this is a "no data available" error vs a real server error
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "no NAEP data available") ||
@@ -265,31 +263,104 @@ func (h *WebHandler) FetchNAEP(w http.ResponseWriter, r *http.Request) {
 					<strong>No NAEP Data Available</strong><br>
 					Assessment data is not available for this school.
 				</p>
-			</div>
-			<button
-				id="naep-load-btn"
-				class="btn btn-primary btn-disabled"
-				disabled
-				hx-swap-oob="true"
-			>
-				No NAEP Data Available
-			</button>`))
+			</div>`))
 			return
 		}
-		
+
 		// Real server error
 		http.Error(w, "NAEP data fetch failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// Convert to view model with pre-calculated data
+	naepView := h.enrichNAEPData(naepData)
+
 	data := map[string]interface{}{
-		"NAEPData": naepData,
+		"NAEPData": naepView,
 		"School":   school,
 	}
 
 	if err := h.templates.ExecuteTemplate(w, "naep_data.html", data); err != nil {
 		log.Printf("Template error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// enrichNAEPData converts NAEPData to NAEPDataView with pre-calculated achievement levels
+func (h *WebHandler) enrichNAEPData(data *NAEPData) *NAEPDataView {
+	useDistrict := len(data.DistrictScores) > 0
+
+	view := &NAEPDataView{
+		NCESSCH:       data.NCESSCH,
+		State:         data.State,
+		District:      data.District,
+		ExtractedAt:   data.ExtractedAt,
+		UseDistrict:   useDistrict,
+		NationalByKey: make(map[string]*NAEPScoreView),
+	}
+
+	// First, enrich national scores and create lookup map
+	for _, score := range data.NationalScores {
+		enrichedScore := h.enrichScore(score, data, false)
+		view.NationalScores = append(view.NationalScores, enrichedScore)
+		key := score.Subject + "-" + fmt.Sprintf("%d", score.Grade)
+		view.NationalByKey[key] = &enrichedScore
+	}
+
+	// Enrich state scores with national comparison
+	for _, score := range data.StateScores {
+		enrichedScore := h.enrichScore(score, data, false)
+		h.addNationalComparison(&enrichedScore, view.NationalByKey)
+		view.StateScores = append(view.StateScores, enrichedScore)
+	}
+
+	// Enrich district scores with national comparison
+	for _, score := range data.DistrictScores {
+		enrichedScore := h.enrichScore(score, data, true)
+		h.addNationalComparison(&enrichedScore, view.NationalByKey)
+		view.DistrictScores = append(view.DistrictScores, enrichedScore)
+	}
+
+	// Group scores by grade for easier template iteration
+	primaryScores := view.StateScores
+	if useDistrict {
+		primaryScores = view.DistrictScores
+	}
+
+	for _, score := range primaryScores {
+		if score.Grade == 4 {
+			view.Grade4Scores = append(view.Grade4Scores, score)
+		} else if score.Grade == 8 {
+			view.Grade8Scores = append(view.Grade8Scores, score)
+		}
+	}
+
+	return view
+}
+
+// addNationalComparison adds national comparison data to a score
+func (h *WebHandler) addNationalComparison(score *NAEPScoreView, nationalByKey map[string]*NAEPScoreView) {
+	key := score.Subject + "-" + fmt.Sprintf("%d", score.Grade)
+	if national, ok := nationalByKey[key]; ok {
+		score.NationalScore = national
+		if score.AtProficient >= national.AtProficient {
+			score.NationalCompare = "Above"
+		} else {
+			score.NationalCompare = "Below"
+		}
+	}
+}
+
+// enrichScore adds achievement level percentages to a score
+func (h *WebHandler) enrichScore(score NAEPScore, data *NAEPData, useDistrict bool) NAEPScoreView {
+	belowBasic, basic, proficient, advanced := data.GetAchievementLevels(score.Subject, score.Grade, useDistrict)
+
+	return NAEPScoreView{
+		NAEPScore:     score,
+		BelowBasicPct: belowBasic,
+		BasicPct:      basic,
+		ProficientPct: proficient,
+		AdvancedPct:   advanced,
 	}
 }
 

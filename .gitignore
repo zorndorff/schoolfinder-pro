@@ -9,3 +9,7 @@ tmpdata/
 # API keys (if stored locally)
 .env
 .DS_Store
+.task/
+dist/
+coverage.out
+coverage.html

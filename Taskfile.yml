@@ -1,0 +1,144 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  BIN: "{{.ROOT_DIR}}/bin"
+  BINARY_NAME: schoolfinder
+
+env:
+  CGO_ENABLED: '1'
+
+tasks:
+  default:
+    desc: Run lint, test, and build
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+
+  goreleaser:install:
+    desc: Installs goreleaser
+    cmds:
+      - go install github.com/goreleaser/goreleaser@latest
+
+  golangci-lint:install:
+    desc: Installs golangci-lint
+    cmds:
+      - brew install golangci-lint
+
+  mod:
+    desc: Downloads and tidy Go modules
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  clean:
+    desc: Cleans temp files and folders
+    cmds:
+      - rm -rf dist/
+      - rm -rf tmp/
+      - rm -f {{.BINARY_NAME}}
+
+  test:
+    desc: Runs test suite
+    aliases: [t]
+    deps: [mod]
+    cmds:
+      - go test -v {{catLines .GO_PACKAGES}}
+    vars:
+      GO_PACKAGES:
+        sh: go list ./...
+
+  test:coverage:
+    desc: Runs test suite with coverage
+    deps: [mod]
+    cmds:
+      - go test -v -coverprofile=coverage.out {{catLines .GO_PACKAGES}}
+      - go tool cover -html=coverage.out -o coverage.html
+    vars:
+      GO_PACKAGES:
+        sh: go list ./...
+
+  lint:
+    desc: Runs golangci-lint
+    aliases: [l]
+    sources:
+      - './**/*.go'
+      - .golangci.yml
+    cmds:
+      - golangci-lint run
+
+  lint:fix:
+    desc: Runs golangci-lint and fixes any issues
+    sources:
+      - './**/*.go'
+      - .golangci.yml
+    cmds:
+      - golangci-lint run --fix
+
+  build:
+    desc: Build the schoolfinder binary
+    aliases: [b]
+    cmds:
+      - go build -v -o={{.BINARY_NAME}} .
+    generates:
+      - "{{.BINARY_NAME}}"
+    sources:
+      - ./**/*.go
+
+  build:all:
+    desc: Build the schoolfinder binaries for all platforms using goreleaser
+    cmds:
+      - goreleaser build --snapshot --clean
+
+  build:release:
+    desc: Build the schoolfinder binaries using goreleaser
+    cmds:
+      - goreleaser release --skip=publish --clean
+
+  run:
+    desc: Build and run the schoolfinder binary
+    aliases: [r]
+    deps: [build]
+    cmds:
+      - ./{{.BINARY_NAME}}
+
+  run:serve:
+    desc: Build and run the web server
+    aliases: [s, serve]
+    deps: [build]
+    cmds:
+      - ./{{.BINARY_NAME}} serve
+
+  dev:
+    desc: Run in development mode with auto-reload (requires air)
+    cmds:
+      - air
+
+  release:*:
+    desc: Release the schoolfinder binary
+    summary: |
+      This task will build the schoolfinder binary and release it to GitHub:
+      - Build the schoolfinder binary
+      - Push the tag to GitHub
+      - Create a new release on GitHub
+      - Upload the ./dist/ artifacts to the release
+    vars:
+      VERSION: "{{index .MATCH 0}}"
+    preconditions:
+      - sh: test $(git rev-parse --abbrev-ref HEAD) = "main"
+        msg: "You must be on the main branch to release"
+      - sh: "[[ -z $(git diff --shortstat main) ]]"
+        msg: "You must have a clean working tree to release"
+    prompt: "Are you sure you want to release version {{.VERSION}}?"
+    cmds:
+      - cmd: echo "Releasing v{{.VERSION}}"
+        silent: true
+      - "git tag v{{.VERSION}}"
+      - "git push origin tag v{{.VERSION}}"
+      - task: build:release
+      - gh release create v{{.VERSION}} --generate-notes
+      - gh release upload v{{.VERSION}} ./dist/*
+      - cmd: echo "✅ Released v{{.VERSION}} successfully!"
+        silent: true

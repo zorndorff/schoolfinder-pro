@@ -8,12 +8,35 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/spf13/cobra"
-	"schoolfinder/cmd"
 )
+
+// DBInterface defines the database operations needed for tools
+type DBInterface interface {
+	SearchSchools(query string, state string, limit int) ([]interface{}, error)
+	GetSchoolByID(ncessch string) (interface{}, error)
+	Close() error
+}
+
+// AIScraperInterface defines the AI scraper operations needed for tools
+type AIScraperInterface interface {
+	ExtractSchoolDataWithWebSearch(school interface{}) (interface{}, error)
+}
+
+// InitDBFunc is the function signature for database initialization
+type InitDBFunc func(dataDir string) (DBInterface, func(), error)
+
+// InitAIScraperFunc is the function signature for AI scraper initialization
+type InitAIScraperFunc func(db DBInterface) (AIScraperInterface, error)
 
 // CreateToolsFromCommands creates Fantasy tools from all registered Cobra commands
 // except for the specified exclusions (e.g., "serve", "ask")
-func CreateToolsFromCommands(rootCmd *cobra.Command, dataDir string, exclusions []string) []fantasy.Tool {
+func CreateToolsFromCommands(
+	rootCmd *cobra.Command,
+	dataDir string,
+	exclusions []string,
+	initDB InitDBFunc,
+	initAIScraper InitAIScraperFunc,
+) []fantasy.Tool {
 	var tools []fantasy.Tool
 
 	// Iterate through all registered commands
@@ -31,7 +54,7 @@ func CreateToolsFromCommands(rootCmd *cobra.Command, dataDir string, exclusions 
 		}
 
 		// Create a tool for this command
-		tool := createToolForCommand(cobraCmd, dataDir)
+		tool := createToolForCommand(cobraCmd, dataDir, initDB, initAIScraper)
 		if tool != nil {
 			tools = append(tools, tool)
 		}
@@ -41,7 +64,12 @@ func CreateToolsFromCommands(rootCmd *cobra.Command, dataDir string, exclusions 
 }
 
 // createToolForCommand creates a Fantasy tool from a Cobra command
-func createToolForCommand(cobraCmd *cobra.Command, dataDir string) fantasy.Tool {
+func createToolForCommand(
+	cobraCmd *cobra.Command,
+	dataDir string,
+	initDB InitDBFunc,
+	initAIScraper InitAIScraperFunc,
+) fantasy.Tool {
 	// Extract the command name (first word in Use)
 	cmdName := strings.Split(cobraCmd.Use, " ")[0]
 
@@ -75,7 +103,7 @@ func createToolForCommand(cobraCmd *cobra.Command, dataDir string) fantasy.Tool 
 			}
 
 			// Initialize database
-			db, cleanup, err := cmd.InitDB(dataDir)
+			db, cleanup, err := initDB(dataDir)
 			if err != nil {
 				return "", fmt.Errorf("failed to initialize database: %v", err)
 			}
@@ -97,7 +125,7 @@ func createToolForCommand(cobraCmd *cobra.Command, dataDir string) fantasy.Tool 
 			}
 
 			// Initialize database
-			db, cleanup, err := cmd.InitDB(dataDir)
+			db, cleanup, err := initDB(dataDir)
 			if err != nil {
 				return "", fmt.Errorf("failed to initialize database: %v", err)
 			}
@@ -123,7 +151,7 @@ func createToolForCommand(cobraCmd *cobra.Command, dataDir string) fantasy.Tool 
 			}
 
 			// Initialize database
-			db, cleanup, err := cmd.InitDB(dataDir)
+			db, cleanup, err := initDB(dataDir)
 			if err != nil {
 				return "", fmt.Errorf("failed to initialize database: %v", err)
 			}
@@ -140,7 +168,7 @@ func createToolForCommand(cobraCmd *cobra.Command, dataDir string) fantasy.Tool 
 			}
 
 			// Initialize AI scraper
-			aiScraper, err := cmd.InitAIScraper(db)
+			aiScraper, err := initAIScraper(db)
 			if err != nil {
 				return "", fmt.Errorf("failed to initialize AI scraper: %v", err)
 			}

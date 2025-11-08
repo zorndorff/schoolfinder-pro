@@ -49,7 +49,27 @@ Example:
 
 		// Create tools from registered Cobra commands
 		// Exclude 'serve' and 'ask' commands from tool generation
-		tools := agent.CreateToolsFromCommands(rootCmd, dataDir, []string{"serve", "ask"})
+		// Wrap the initialization functions to match the agent package's interface
+		initDBWrapper := func(dataDir string) (agent.DBInterface, func(), error) {
+			db, cleanup, err := InitDB(dataDir)
+			if err != nil {
+				return nil, nil, err
+			}
+			// Wrap the DBInterface to match agent.DBInterface
+			return &dbInterfaceAdapter{db: db}, cleanup, nil
+		}
+
+		initAIScraperWrapper := func(db agent.DBInterface) (agent.AIScraperInterface, error) {
+			// Unwrap the db to get the original cmd.DBInterface
+			adapter := db.(*dbInterfaceAdapter)
+			scraper, err := InitAIScraper(adapter.db)
+			if err != nil {
+				return nil, err
+			}
+			return &aiScraperInterfaceAdapter{scraper: scraper}, nil
+		}
+
+		tools := agent.CreateToolsFromCommands(rootCmd, dataDir, []string{"serve", "ask"}, initDBWrapper, initAIScraperWrapper)
 
 		// Create agent with command tools
 		fantasyAgent := fantasy.NewAgent(
@@ -69,6 +89,45 @@ Example:
 	},
 }
 
+// dbInterfaceAdapter adapts cmd.DBInterface to agent.DBInterface
+type dbInterfaceAdapter struct {
+	db DBInterface
+}
+
+func (a *dbInterfaceAdapter) SearchSchools(query string, state string, limit int) ([]interface{}, error) {
+	schools, err := a.db.SearchSchools(query, state, limit)
+	if err != nil {
+		return nil, err
+	}
+	// Convert []SchoolData to []interface{}
+	result := make([]interface{}, len(schools))
+	for i, school := range schools {
+		result[i] = school
+	}
+	return result, nil
+}
+
+func (a *dbInterfaceAdapter) GetSchoolByID(ncessch string) (interface{}, error) {
+	return a.db.GetSchoolByID(ncessch)
+}
+
+func (a *dbInterfaceAdapter) Close() error {
+	return a.db.Close()
+}
+
+// aiScraperInterfaceAdapter adapts cmd.AIScraperInterface to agent.AIScraperInterface
+type aiScraperInterfaceAdapter struct {
+	scraper AIScraperInterface
+}
+
+func (a *aiScraperInterfaceAdapter) ExtractSchoolDataWithWebSearch(school interface{}) (interface{}, error) {
+	// Convert interface{} back to *SchoolData
+	schoolData, ok := school.(*SchoolData)
+	if !ok {
+		return nil, fmt.Errorf("invalid school data type")
+	}
+	return a.scraper.ExtractSchoolDataWithWebSearch(schoolData)
+}
 
 func init() {
 	rootCmd.AddCommand(askCmd)

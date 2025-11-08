@@ -69,13 +69,13 @@ Example:
 			return &aiScraperInterfaceAdapter{scraper: scraper}, nil
 		}
 
-		tools := agent.CreateToolsFromCommands(rootCmd, dataDir, []string{"serve", "ask"}, initDBWrapper, initAIScraperWrapper)
+		agentTools := agent.CreateToolsFromCommands(rootCmd, dataDir, []string{"serve", "ask"}, initDBWrapper, initAIScraperWrapper)
 
 		// Create agent with command tools
 		fantasyAgent := fantasy.NewAgent(
 			model,
 			fantasy.WithSystemPrompt("You are a helpful assistant specializing in education and school-related topics. You have access to tools that can search schools, get school details, and scrape enhanced data from school websites. Use these tools when appropriate to provide accurate, data-backed answers."),
-			fantasy.WithTools(tools...),
+			fantasy.WithTools(agentTools...),
 		)
 
 		// Generate the response

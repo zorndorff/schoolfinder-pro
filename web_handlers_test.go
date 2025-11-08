@@ -9,12 +9,12 @@ func TestEnrichScore(t *testing.T) {
 	handler := &WebHandler{}
 
 	testCases := []struct {
-		name          string
-		score         NAEPScore
-		data          *NAEPData
-		useDistrict   bool
-		expectedProf  float64
-		expectedAdv   float64
+		name         string
+		score        NAEPScore
+		data         *NAEPData
+		useDistrict  bool
+		expectedProf float64
+		expectedAdv  float64
 	}{
 		{
 			name:         "Grade 4 Mathematics with 40% proficient",

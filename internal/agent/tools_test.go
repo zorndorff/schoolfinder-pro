@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"charm.land/fantasy"
 	"github.com/spf13/cobra"
 )
 
@@ -139,32 +140,46 @@ func TestCreateToolForCommand(t *testing.T) {
 	// Test tool execution (this tests the search case)
 	t.Run("ExecuteSearchTool", func(t *testing.T) {
 		ctx := context.Background()
-		params := map[string]interface{}{
-			"query": "test school",
-			"state": "CA",
-			"limit": float64(10),
+		// Create a ToolCall with JSON input
+		toolCall := fantasy.ToolCall{
+			ID:    "test-1",
+			Name:  "search",
+			Input: `{"query": "test school", "state": "CA", "limit": 10}`,
 		}
 
-		result, err := tool.Function()(ctx, params)
+		agentTool := tool.(fantasy.AgentTool)
+		result, err := agentTool.Run(ctx, toolCall)
 		if err != nil {
 			t.Errorf("Tool execution failed: %v", err)
 		}
 
-		if result == "" {
+		if result.Content == "" {
 			t.Error("Expected non-empty result from tool execution")
+		}
+
+		if result.IsError {
+			t.Errorf("Expected successful result, got error: %s", result.Content)
 		}
 	})
 
 	// Test tool execution with missing required parameter
 	t.Run("ExecuteSearchToolMissingQuery", func(t *testing.T) {
 		ctx := context.Background()
-		params := map[string]interface{}{
-			"state": "CA",
+		// Create a ToolCall with JSON input missing query
+		toolCall := fantasy.ToolCall{
+			ID:    "test-2",
+			Name:  "search",
+			Input: `{"state": "CA"}`,
 		}
 
-		_, err := tool.Function()(ctx, params)
-		if err == nil {
-			t.Error("Expected error for missing query parameter, got nil")
+		agentTool := tool.(fantasy.AgentTool)
+		result, err := agentTool.Run(ctx, toolCall)
+		if err != nil {
+			t.Errorf("Tool execution failed: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for missing query parameter, got success")
 		}
 	})
 }
@@ -184,17 +199,24 @@ func TestDetailsToolExecution(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	params := map[string]interface{}{
-		"school_id": "12345",
+	toolCall := fantasy.ToolCall{
+		ID:    "test-details",
+		Name:  "details",
+		Input: `{"school_id": "12345"}`,
 	}
 
-	result, err := tool.Function()(ctx, params)
+	agentTool := tool.(fantasy.AgentTool)
+	result, err := agentTool.Run(ctx, toolCall)
 	if err != nil {
 		t.Errorf("Details tool execution failed: %v", err)
 	}
 
-	if result == "" {
+	if result.Content == "" {
 		t.Error("Expected non-empty result from details tool execution")
+	}
+
+	if result.IsError {
+		t.Errorf("Expected successful result, got error: %s", result.Content)
 	}
 }
 
@@ -213,17 +235,24 @@ func TestScrapeToolExecution(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	params := map[string]interface{}{
-		"school_id": "12345",
+	toolCall := fantasy.ToolCall{
+		ID:    "test-scrape",
+		Name:  "scrape",
+		Input: `{"school_id": "12345"}`,
 	}
 
-	result, err := tool.Function()(ctx, params)
+	agentTool := tool.(fantasy.AgentTool)
+	result, err := agentTool.Run(ctx, toolCall)
 	if err != nil {
 		t.Errorf("Scrape tool execution failed: %v", err)
 	}
 
-	if result == "" {
+	if result.Content == "" {
 		t.Error("Expected non-empty result from scrape tool execution")
+	}
+
+	if result.IsError {
+		t.Errorf("Expected successful result, got error: %s", result.Content)
 	}
 }
 
@@ -242,16 +271,25 @@ func TestUnsupportedCommand(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	params := map[string]interface{}{}
+	toolCall := fantasy.ToolCall{
+		ID:    "test-unsupported",
+		Name:  "unsupported",
+		Input: `{}`,
+	}
 
-	_, err := tool.Function()(ctx, params)
-	if err == nil {
-		t.Error("Expected error for unsupported command, got nil")
+	agentTool := tool.(fantasy.AgentTool)
+	result, err := agentTool.Run(ctx, toolCall)
+	if err != nil {
+		t.Errorf("Tool execution failed: %v", err)
+	}
+
+	if !result.IsError {
+		t.Error("Expected error result for unsupported command, got success")
 	}
 
 	expectedMsg := "unsupported command: unsupported"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message '%s', got '%s'", expectedMsg, err.Error())
+	if result.Content != expectedMsg {
+		t.Errorf("Expected error message '%s', got '%s'", expectedMsg, result.Content)
 	}
 }
 

@@ -25,59 +25,59 @@ type StaffContact struct {
 
 // EnhancedSchoolData represents structured data extracted from school website
 type EnhancedSchoolData struct {
-	NCESSCH          string    `json:"ncessch"`
-	SchoolName       string    `json:"school_name"`
-	ExtractedAt      time.Time `json:"extracted_at"`
-	SourceURL        string    `json:"source_url"`
+	NCESSCH     string    `json:"ncessch"`
+	SchoolName  string    `json:"school_name"`
+	ExtractedAt time.Time `json:"extracted_at"`
+	SourceURL   string    `json:"source_url"`
 
 	// Markdown content from AI extraction
-	MarkdownContent  string    `json:"markdown_content"`
+	MarkdownContent string `json:"markdown_content"`
 
 	// Legacy structured fields (kept for backward compatibility with cached data)
-	Principal        string   `json:"principal,omitempty"`
-	VicePrincipals   []string `json:"vice_principals,omitempty"`
-	Mascot           string   `json:"mascot,omitempty"`
-	SchoolColors     []string `json:"school_colors,omitempty"`
-	Founded          string   `json:"founded,omitempty"`
+	Principal      string   `json:"principal,omitempty"`
+	VicePrincipals []string `json:"vice_principals,omitempty"`
+	Mascot         string   `json:"mascot,omitempty"`
+	SchoolColors   []string `json:"school_colors,omitempty"`
+	Founded        string   `json:"founded,omitempty"`
 
 	// Staff Contact Information
-	StaffContacts    []StaffContact `json:"staff_contacts,omitempty"`
-	MainOfficeEmail  string         `json:"main_office_email,omitempty"`
-	MainOfficePhone  string         `json:"main_office_phone,omitempty"`
+	StaffContacts   []StaffContact `json:"staff_contacts,omitempty"`
+	MainOfficeEmail string         `json:"main_office_email,omitempty"`
+	MainOfficePhone string         `json:"main_office_phone,omitempty"`
 
 	// Academic Programs
-	APCourses        []string `json:"ap_courses,omitempty"`
-	Honors           []string `json:"honors,omitempty"`
-	SpecialPrograms  []string `json:"special_programs,omitempty"`
-	Languages        []string `json:"languages,omitempty"`
+	APCourses       []string `json:"ap_courses,omitempty"`
+	Honors          []string `json:"honors,omitempty"`
+	SpecialPrograms []string `json:"special_programs,omitempty"`
+	Languages       []string `json:"languages,omitempty"`
 
 	// Activities & Sports
-	Sports           []string `json:"sports,omitempty"`
-	Clubs            []string `json:"clubs,omitempty"`
-	Arts             []string `json:"arts,omitempty"`
+	Sports []string `json:"sports,omitempty"`
+	Clubs  []string `json:"clubs,omitempty"`
+	Arts   []string `json:"arts,omitempty"`
 
 	// Facilities
-	Facilities       []string `json:"facilities,omitempty"`
+	Facilities []string `json:"facilities,omitempty"`
 
 	// Schedule & Calendar
-	BellSchedule     string   `json:"bell_schedule,omitempty"`
-	SchoolHours      string   `json:"school_hours,omitempty"`
+	BellSchedule string `json:"bell_schedule,omitempty"`
+	SchoolHours  string `json:"school_hours,omitempty"`
 
 	// Achievements
-	Achievements     []string `json:"achievements,omitempty"`
-	Accreditations   []string `json:"accreditations,omitempty"`
+	Achievements   []string `json:"achievements,omitempty"`
+	Accreditations []string `json:"accreditations,omitempty"`
 
 	// Additional Info
-	Mission          string   `json:"mission,omitempty"`
-	Notes            string   `json:"notes,omitempty"`
+	Mission string `json:"mission,omitempty"`
+	Notes   string `json:"notes,omitempty"`
 }
 
 // AIScraperService handles website scraping with Claude
 type AIScraperService struct {
-	client      *anthropic.Client
-	db          *DB
-	cacheTTL    time.Duration
-	httpClient  *http.Client
+	client     *anthropic.Client
+	db         *DB
+	cacheTTL   time.Duration
+	httpClient *http.Client
 }
 
 // NewAIScraperService creates a new AI scraper service
@@ -213,7 +213,7 @@ If you cannot find staff contact information after thorough searching, explicitl
 	webSearchTool := &anthropic.WebSearchTool20250305Param{}
 
 	tools := []anthropic.ToolUnionParam{{
-	  OfWebSearchTool20250305: webSearchTool,
+		OfWebSearchTool20250305: webSearchTool,
 	}}
 
 	// Create the message parameters

@@ -10,73 +10,73 @@ func TestDetermineGrades(t *testing.T) {
 	client := &NAEPClient{}
 
 	testCases := []struct {
-		name          string
-		gradeLow      string
-		gradeHigh     string
-		expectedCount int
+		name           string
+		gradeLow       string
+		gradeHigh      string
+		expectedCount  int
 		expectedGrades []int
 	}{
 		{
-			name:          "Elementary school (PK-5)",
-			gradeLow:      "PK",
-			gradeHigh:     "05",
-			expectedCount: 1,
+			name:           "Elementary school (PK-5)",
+			gradeLow:       "PK",
+			gradeHigh:      "05",
+			expectedCount:  1,
 			expectedGrades: []int{4},
 		},
 		{
-			name:          "Middle school (6-8)",
-			gradeLow:      "06",
-			gradeHigh:     "08",
-			expectedCount: 1,
+			name:           "Middle school (6-8)",
+			gradeLow:       "06",
+			gradeHigh:      "08",
+			expectedCount:  1,
 			expectedGrades: []int{8},
 		},
 		{
-			name:          "K-8 school",
-			gradeLow:      "KG",
-			gradeHigh:     "08",
-			expectedCount: 2,
+			name:           "K-8 school",
+			gradeLow:       "KG",
+			gradeHigh:      "08",
+			expectedCount:  2,
 			expectedGrades: []int{4, 8},
 		},
 		{
-			name:          "High school (9-12)",
-			gradeLow:      "09",
-			gradeHigh:     "12",
-			expectedCount: 0,
+			name:           "High school (9-12)",
+			gradeLow:       "09",
+			gradeHigh:      "12",
+			expectedCount:  0,
 			expectedGrades: []int{},
 		},
 		{
-			name:          "K-12 school",
-			gradeLow:      "KG",
-			gradeHigh:     "12",
-			expectedCount: 2,
+			name:           "K-12 school",
+			gradeLow:       "KG",
+			gradeHigh:      "12",
+			expectedCount:  2,
 			expectedGrades: []int{4, 8},
 		},
 		{
-			name:          "Only grade 4",
-			gradeLow:      "04",
-			gradeHigh:     "04",
-			expectedCount: 1,
+			name:           "Only grade 4",
+			gradeLow:       "04",
+			gradeHigh:      "04",
+			expectedCount:  1,
 			expectedGrades: []int{4},
 		},
 		{
-			name:          "Only grade 8",
-			gradeLow:      "08",
-			gradeHigh:     "08",
-			expectedCount: 1,
+			name:           "Only grade 8",
+			gradeLow:       "08",
+			gradeHigh:      "08",
+			expectedCount:  1,
 			expectedGrades: []int{8},
 		},
 		{
-			name:          "Grades 3-5 (includes 4)",
-			gradeLow:      "03",
-			gradeHigh:     "05",
-			expectedCount: 1,
+			name:           "Grades 3-5 (includes 4)",
+			gradeLow:       "03",
+			gradeHigh:      "05",
+			expectedCount:  1,
 			expectedGrades: []int{4},
 		},
 		{
-			name:          "Grades 7-9 (includes 8)",
-			gradeLow:      "07",
-			gradeHigh:     "09",
-			expectedCount: 1,
+			name:           "Grades 7-9 (includes 8)",
+			gradeLow:       "07",
+			gradeHigh:      "09",
+			expectedCount:  1,
 			expectedGrades: []int{8},
 		},
 	}
@@ -349,10 +349,10 @@ func TestGetMostRecentScore(t *testing.T) {
 			shouldFind:   true,
 		},
 		{
-			name:        "Math grade 4 district",
-			subject:     "mathematics",
-			grade:       4,
-			useDistrict: true,
+			name:         "Math grade 4 district",
+			subject:      "mathematics",
+			grade:        4,
+			useDistrict:  true,
 			expectedYear: 2022,
 			expectedProf: 36.0,
 			shouldFind:   true,

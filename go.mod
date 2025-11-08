@@ -1,6 +1,8 @@
 module schoolfinder
 
-go 1.25.1
+go 1.24.5
+
+toolchain go1.24.7
 
 require (
 	charm.land/fantasy v0.2.0

@@ -10,6 +10,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Input types for each tool
+type SearchInput struct {
+	Query string `json:"query" jsonschema:"required,description=Search query for school name, city, district, address, or zip code"`
+	State string `json:"state,omitempty" jsonschema:"description=Optional state filter (e.g., CA, NY)"`
+	Limit int    `json:"limit,omitempty" jsonschema:"description=Maximum number of results (default: 100)"`
+}
+
+type DetailsInput struct {
+	SchoolID string `json:"school_id" jsonschema:"required,description=The NCESSCH ID of the school"`
+}
+
+type ScrapeInput struct {
+	SchoolID string `json:"school_id" jsonschema:"required,description=The NCESSCH ID of the school to scrape enhanced data for"`
+}
+
 // DBInterface defines the database operations needed for tools
 type DBInterface interface {
 	SearchSchools(query string, state string, limit int) ([]interface{}, error)
@@ -36,8 +51,8 @@ func CreateToolsFromCommands(
 	exclusions []string,
 	initDB InitDBFunc,
 	initAIScraper InitAIScraperFunc,
-) []fantasy.Tool {
-	var tools []fantasy.Tool
+) []fantasy.AgentTool {
+	var tools []fantasy.AgentTool
 
 	// Iterate through all registered commands
 	for _, cobraCmd := range rootCmd.Commands() {
@@ -69,7 +84,7 @@ func createToolForCommand(
 	dataDir string,
 	initDB InitDBFunc,
 	initAIScraper InitAIScraperFunc,
-) fantasy.Tool {
+) fantasy.AgentTool {
 	// Extract the command name (first word in Use)
 	cmdName := strings.Split(cobraCmd.Use, " ")[0]
 
@@ -79,183 +94,139 @@ func createToolForCommand(
 		description = fmt.Sprintf("Execute the %s command", cmdName)
 	}
 
-	// Create the tool function that calls the underlying functionality directly
-	toolFunc := func(ctx context.Context, params map[string]interface{}) (string, error) {
-		var result interface{}
-		var err error
-
-		switch cmdName {
-		case "search":
-			// Extract search parameters
-			query, ok := params["query"].(string)
-			if !ok || query == "" {
-				return "", fmt.Errorf("query parameter is required")
-			}
-
-			state := ""
-			if s, ok := params["state"].(string); ok {
-				state = s
-			}
-
-			limit := 100
-			if l, ok := params["limit"].(float64); ok {
-				limit = int(l)
-			}
-
-			// Initialize database
-			db, cleanup, err := initDB(dataDir)
-			if err != nil {
-				return "", fmt.Errorf("failed to initialize database: %v", err)
-			}
-			defer cleanup()
-
-			// Execute search
-			schools, err := db.SearchSchools(query, state, limit)
-			if err != nil {
-				return "", fmt.Errorf("failed to search schools: %v", err)
-			}
-
-			result = schools
-
-		case "details":
-			// Extract school ID parameter
-			schoolID, ok := params["school_id"].(string)
-			if !ok || schoolID == "" {
-				return "", fmt.Errorf("school_id parameter is required")
-			}
-
-			// Initialize database
-			db, cleanup, err := initDB(dataDir)
-			if err != nil {
-				return "", fmt.Errorf("failed to initialize database: %v", err)
-			}
-			defer cleanup()
-
-			// Get school details
-			school, err := db.GetSchoolByID(schoolID)
-			if err != nil {
-				return "", fmt.Errorf("failed to get school details: %v", err)
-			}
-
-			if school == nil {
-				return "", fmt.Errorf("no school found with ID: %s", schoolID)
-			}
-
-			result = school
-
-		case "scrape":
-			// Extract school ID parameter
-			schoolID, ok := params["school_id"].(string)
-			if !ok || schoolID == "" {
-				return "", fmt.Errorf("school_id parameter is required")
-			}
-
-			// Initialize database
-			db, cleanup, err := initDB(dataDir)
-			if err != nil {
-				return "", fmt.Errorf("failed to initialize database: %v", err)
-			}
-			defer cleanup()
-
-			// Get school details first
-			school, err := db.GetSchoolByID(schoolID)
-			if err != nil {
-				return "", fmt.Errorf("failed to get school details: %v", err)
-			}
-
-			if school == nil {
-				return "", fmt.Errorf("no school found with ID: %s", schoolID)
-			}
-
-			// Initialize AI scraper
-			aiScraper, err := initAIScraper(db)
-			if err != nil {
-				return "", fmt.Errorf("failed to initialize AI scraper: %v", err)
-			}
-
-			// Extract enhanced data
-			enhancedData, err := aiScraper.ExtractSchoolDataWithWebSearch(school)
-			if err != nil {
-				return "", fmt.Errorf("failed to scrape school data: %v", err)
-			}
-
-			result = enhancedData
-
-		default:
-			return "", fmt.Errorf("unsupported command: %s", cmdName)
-		}
-
-		// Convert result to JSON
-		jsonBytes, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return "", fmt.Errorf("failed to encode result as JSON: %v", err)
-		}
-
-		return string(jsonBytes), nil
-	}
-
-	// Create parameter schema based on command
-	var paramSchema map[string]interface{}
-
 	switch cmdName {
 	case "search":
-		paramSchema = map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"query": map[string]interface{}{
-					"type":        "string",
-					"description": "Search query for school name, city, district, address, or zip code",
-				},
-				"state": map[string]interface{}{
-					"type":        "string",
-					"description": "Optional state filter (e.g., CA, NY)",
-				},
-				"limit": map[string]interface{}{
-					"type":        "integer",
-					"description": "Maximum number of results (default: 100)",
-				},
-			},
-			"required": []string{"query"},
-		}
-	case "details":
-		paramSchema = map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"school_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The NCESSCH ID of the school",
-				},
-			},
-			"required": []string{"school_id"},
-		}
-	case "scrape":
-		paramSchema = map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"school_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The NCESSCH ID of the school to scrape enhanced data for",
-				},
-			},
-			"required": []string{"school_id"},
-		}
-	default:
-		// Generic schema for other commands
-		paramSchema = map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"args": map[string]interface{}{
-					"type":        "string",
-					"description": "Arguments for the command",
-				},
-			},
-		}
-	}
+		return fantasy.NewAgentTool(
+			cmdName,
+			description,
+			func(ctx context.Context, input SearchInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				// Validate input
+				if input.Query == "" {
+					return fantasy.NewTextErrorResponse("query parameter is required"), nil
+				}
 
-	return fantasy.NewAgentTool(
-		cmdName,
-		description,
-		toolFunc,
-		fantasy.WithParameters(paramSchema),
-	)
+				// Set default limit if not provided
+				if input.Limit == 0 {
+					input.Limit = 100
+				}
+
+				// Initialize database
+				db, cleanup, err := initDB(dataDir)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to initialize database: %v", err)), nil
+				}
+				defer cleanup()
+
+				// Execute search
+				schools, err := db.SearchSchools(input.Query, input.State, input.Limit)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to search schools: %v", err)), nil
+				}
+
+				// Convert result to JSON
+				jsonBytes, err := json.MarshalIndent(schools, "", "  ")
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode result as JSON: %v", err)), nil
+				}
+
+				return fantasy.NewTextResponse(string(jsonBytes)), nil
+			},
+		)
+
+	case "details":
+		return fantasy.NewAgentTool(
+			cmdName,
+			description,
+			func(ctx context.Context, input DetailsInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				// Validate input
+				if input.SchoolID == "" {
+					return fantasy.NewTextErrorResponse("school_id parameter is required"), nil
+				}
+
+				// Initialize database
+				db, cleanup, err := initDB(dataDir)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to initialize database: %v", err)), nil
+				}
+				defer cleanup()
+
+				// Get school details
+				school, err := db.GetSchoolByID(input.SchoolID)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to get school details: %v", err)), nil
+				}
+
+				if school == nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("no school found with ID: %s", input.SchoolID)), nil
+				}
+
+				// Convert result to JSON
+				jsonBytes, err := json.MarshalIndent(school, "", "  ")
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode result as JSON: %v", err)), nil
+				}
+
+				return fantasy.NewTextResponse(string(jsonBytes)), nil
+			},
+		)
+
+	case "scrape":
+		return fantasy.NewAgentTool(
+			cmdName,
+			description,
+			func(ctx context.Context, input ScrapeInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				// Validate input
+				if input.SchoolID == "" {
+					return fantasy.NewTextErrorResponse("school_id parameter is required"), nil
+				}
+
+				// Initialize database
+				db, cleanup, err := initDB(dataDir)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to initialize database: %v", err)), nil
+				}
+				defer cleanup()
+
+				// Get school details first
+				school, err := db.GetSchoolByID(input.SchoolID)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to get school details: %v", err)), nil
+				}
+
+				if school == nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("no school found with ID: %s", input.SchoolID)), nil
+				}
+
+				// Initialize AI scraper
+				aiScraper, err := initAIScraper(db)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to initialize AI scraper: %v", err)), nil
+				}
+
+				// Extract enhanced data
+				enhancedData, err := aiScraper.ExtractSchoolDataWithWebSearch(school)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to scrape school data: %v", err)), nil
+				}
+
+				// Convert result to JSON
+				jsonBytes, err := json.MarshalIndent(enhancedData, "", "  ")
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode result as JSON: %v", err)), nil
+				}
+
+				return fantasy.NewTextResponse(string(jsonBytes)), nil
+			},
+		)
+
+	default:
+		// For unsupported commands, create a tool that returns an error
+		return fantasy.NewAgentTool(
+			cmdName,
+			description,
+			func(ctx context.Context, input map[string]interface{}, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("unsupported command: %s", cmdName)), nil
+			},
+		)
+	}
 }

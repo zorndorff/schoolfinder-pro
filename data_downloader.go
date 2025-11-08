@@ -64,7 +64,7 @@ func GetFileSize(url string) (int64, error) {
 // GetTotalDownloadSize calculates the total size of all missing files
 func GetTotalDownloadSize(missing []DataFile) (int64, error) {
 	var totalSize int64
-	
+
 	for _, file := range missing {
 		size, err := GetFileSize(file.URL)
 		if err != nil {
@@ -74,7 +74,7 @@ func GetTotalDownloadSize(missing []DataFile) (int64, error) {
 		}
 		totalSize += size
 	}
-	
+
 	return totalSize, nil
 }
 
@@ -88,7 +88,7 @@ func PromptUserForDownload(missing []DataFile) bool {
 	for _, file := range missing {
 		fmt.Printf("   - %s\n", file.Name)
 	}
-	
+
 	// Get total download size
 	totalSize, err := GetTotalDownloadSize(missing)
 	if err != nil || totalSize == 0 {
@@ -99,7 +99,7 @@ func PromptUserForDownload(missing []DataFile) bool {
 		fmt.Println("\nThese files are required for the School Finder to work.")
 		fmt.Printf("Total download size: ~%d files (%d MB)\n", len(missing), totalMB)
 	}
-	
+
 	fmt.Print("\nWould you like to download them now? (y/N): ")
 
 	var response string
@@ -138,9 +138,9 @@ func DownloadFileWithProgress(filepath string, url string, fileIndex, totalFiles
 
 	// Create a progress reader with enhanced tracking
 	counter := &ProgressCounter{
-		Total:     size,
-		Name:      filepath,
-		FileIndex: fileIndex,
+		Total:      size,
+		Name:       filepath,
+		FileIndex:  fileIndex,
 		TotalFiles: totalFiles,
 	}
 
@@ -153,10 +153,10 @@ func DownloadFileWithProgress(filepath string, url string, fileIndex, totalFiles
 
 // ProgressCounter counts bytes as they're written and displays progress
 type ProgressCounter struct {
-	Total     int64
-	Current   int64
-	Name      string
-	FileIndex int
+	Total      int64
+	Current    int64
+	Name       string
+	FileIndex  int
 	TotalFiles int
 }
 
@@ -167,9 +167,9 @@ func (pc *ProgressCounter) Write(p []byte) (int, error) {
 	// Calculate percentage and display appropriate format
 	var percentage float64
 	var currentMB, totalMB int64
-	
+
 	currentMB = pc.Current / 1024 / 1024
-	
+
 	if pc.Total > 0 {
 		percentage = float64(pc.Current) / float64(pc.Total) * 100
 		totalMB = pc.Total / 1024 / 1024

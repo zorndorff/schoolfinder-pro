@@ -400,12 +400,8 @@ func CreateEnrollmentVisualization(enrollment int64, avgEnrollment float64) stri
 		avgEnrollment = 500 // Default assumption
 	}
 
-	percentage := (float64(enrollment) / avgEnrollment) * 100
-
-	// Cap at 200% for visualization
-	if percentage > 200 {
-		percentage = 200
-	}
+	// percentage := (float64(enrollment) / avgEnrollment) * 100
+	// Note: We use avgEnrollment*2 as max for visualization (capped at 200%)
 
 	width := 50
 	return BarChart("School vs Average", float64(enrollment), avgEnrollment*2, width, lipgloss.Color("33"))
@@ -754,7 +750,12 @@ func NAEPParentSummaryCard(subject string, grade int, proficientPercent float64,
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33"))
 	levelStyle := lipgloss.NewStyle().Bold(true).Foreground(performanceColor)
 
-	result.WriteString(titleStyle.Render(fmt.Sprintf("Grade %d %s", grade, strings.Title(subject))))
+	// Capitalize first letter of subject (simple replacement for deprecated strings.Title)
+	capitalizedSubject := subject
+	if len(subject) > 0 {
+		capitalizedSubject = strings.ToUpper(string(subject[0])) + subject[1:]
+	}
+	result.WriteString(titleStyle.Render(fmt.Sprintf("Grade %d %s", grade, capitalizedSubject)))
 	result.WriteString("\n")
 	result.WriteString(levelStyle.Render(fmt.Sprintf("  %s", performanceLevel)))
 	result.WriteString("\n")

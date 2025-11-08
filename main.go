@@ -1047,7 +1047,7 @@ func (m model) detailViewContent() string {
 						b.WriteString("\n\n")
 
 						// Show score comparison bars
-						localLabel := "Local"
+						var localLabel string
 						if useDistrict {
 							localLabel = "District"
 						} else {

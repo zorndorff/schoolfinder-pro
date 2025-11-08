@@ -9,58 +9,58 @@ import (
 
 // SchoolData represents a school record (matches main.School)
 type SchoolData struct {
-	NCESSCH        string   `json:"ncessch"`
-	Name           string   `json:"name"`
-	State          string   `json:"state"`
-	StateName      string   `json:"state_name"`
-	City           string   `json:"city"`
-	District       string   `json:"district"`
-	DistrictID     *string  `json:"district_id,omitempty"`
-	SchoolYear     string   `json:"school_year"`
-	Teachers       *float64 `json:"teachers,omitempty"`
-	Level          *string  `json:"level,omitempty"`
-	Phone          *string  `json:"phone,omitempty"`
-	Website        *string  `json:"website,omitempty"`
-	Zip            *string  `json:"zip,omitempty"`
-	Street1        *string  `json:"street1,omitempty"`
-	Street2        *string  `json:"street2,omitempty"`
-	Street3        *string  `json:"street3,omitempty"`
-	SchoolType     *string  `json:"school_type,omitempty"`
-	GradeLow       *string  `json:"grade_low,omitempty"`
-	GradeHigh      *string  `json:"grade_high,omitempty"`
-	CharterText    *string  `json:"charter_text,omitempty"`
-	Enrollment     *int64   `json:"enrollment,omitempty"`
+	NCESSCH     string   `json:"ncessch"`
+	Name        string   `json:"name"`
+	State       string   `json:"state"`
+	StateName   string   `json:"state_name"`
+	City        string   `json:"city"`
+	District    string   `json:"district"`
+	DistrictID  *string  `json:"district_id,omitempty"`
+	SchoolYear  string   `json:"school_year"`
+	Teachers    *float64 `json:"teachers,omitempty"`
+	Level       *string  `json:"level,omitempty"`
+	Phone       *string  `json:"phone,omitempty"`
+	Website     *string  `json:"website,omitempty"`
+	Zip         *string  `json:"zip,omitempty"`
+	Street1     *string  `json:"street1,omitempty"`
+	Street2     *string  `json:"street2,omitempty"`
+	Street3     *string  `json:"street3,omitempty"`
+	SchoolType  *string  `json:"school_type,omitempty"`
+	GradeLow    *string  `json:"grade_low,omitempty"`
+	GradeHigh   *string  `json:"grade_high,omitempty"`
+	CharterText *string  `json:"charter_text,omitempty"`
+	Enrollment  *int64   `json:"enrollment,omitempty"`
 }
 
 // EnhancedSchoolDataJSON represents enhanced data from AI scraping
 type EnhancedSchoolDataJSON struct {
-	NCESSCH          string          `json:"ncessch"`
-	SchoolName       string          `json:"school_name"`
-	ExtractedAt      string          `json:"extracted_at"`
-	SourceURL        string          `json:"source_url"`
-	MarkdownContent  string          `json:"markdown_content"`
-	Principal        string          `json:"principal,omitempty"`
-	VicePrincipals   []string        `json:"vice_principals,omitempty"`
-	Mascot           string          `json:"mascot,omitempty"`
-	SchoolColors     []string        `json:"school_colors,omitempty"`
-	Founded          string          `json:"founded,omitempty"`
-	StaffContacts    []StaffContact  `json:"staff_contacts,omitempty"`
-	MainOfficeEmail  string          `json:"main_office_email,omitempty"`
-	MainOfficePhone  string          `json:"main_office_phone,omitempty"`
-	APCourses        []string        `json:"ap_courses,omitempty"`
-	Honors           []string        `json:"honors,omitempty"`
-	SpecialPrograms  []string        `json:"special_programs,omitempty"`
-	Languages        []string        `json:"languages,omitempty"`
-	Sports           []string        `json:"sports,omitempty"`
-	Clubs            []string        `json:"clubs,omitempty"`
-	Arts             []string        `json:"arts,omitempty"`
-	Facilities       []string        `json:"facilities,omitempty"`
-	BellSchedule     string          `json:"bell_schedule,omitempty"`
-	SchoolHours      string          `json:"school_hours,omitempty"`
-	Achievements     []string        `json:"achievements,omitempty"`
-	Accreditations   []string        `json:"accreditations,omitempty"`
-	Mission          string          `json:"mission,omitempty"`
-	Notes            string          `json:"notes,omitempty"`
+	NCESSCH         string         `json:"ncessch"`
+	SchoolName      string         `json:"school_name"`
+	ExtractedAt     string         `json:"extracted_at"`
+	SourceURL       string         `json:"source_url"`
+	MarkdownContent string         `json:"markdown_content"`
+	Principal       string         `json:"principal,omitempty"`
+	VicePrincipals  []string       `json:"vice_principals,omitempty"`
+	Mascot          string         `json:"mascot,omitempty"`
+	SchoolColors    []string       `json:"school_colors,omitempty"`
+	Founded         string         `json:"founded,omitempty"`
+	StaffContacts   []StaffContact `json:"staff_contacts,omitempty"`
+	MainOfficeEmail string         `json:"main_office_email,omitempty"`
+	MainOfficePhone string         `json:"main_office_phone,omitempty"`
+	APCourses       []string       `json:"ap_courses,omitempty"`
+	Honors          []string       `json:"honors,omitempty"`
+	SpecialPrograms []string       `json:"special_programs,omitempty"`
+	Languages       []string       `json:"languages,omitempty"`
+	Sports          []string       `json:"sports,omitempty"`
+	Clubs           []string       `json:"clubs,omitempty"`
+	Arts            []string       `json:"arts,omitempty"`
+	Facilities      []string       `json:"facilities,omitempty"`
+	BellSchedule    string         `json:"bell_schedule,omitempty"`
+	SchoolHours     string         `json:"school_hours,omitempty"`
+	Achievements    []string       `json:"achievements,omitempty"`
+	Accreditations  []string       `json:"accreditations,omitempty"`
+	Mission         string         `json:"mission,omitempty"`
+	Notes           string         `json:"notes,omitempty"`
 }
 
 // StaffContact represents staff contact information
@@ -86,8 +86,8 @@ type AIScraperInterface interface {
 
 // These variables will be set by main package
 var (
-	LaunchTUI    func(dataDir string)
-	InitDB       func(dataDir string) (DBInterface, func(), error)
+	LaunchTUI     func(dataDir string)
+	InitDB        func(dataDir string) (DBInterface, func(), error)
 	InitAIScraper func(db DBInterface) (AIScraperInterface, error)
 )
 
@@ -111,7 +111,7 @@ func (w *dbWrapper) SearchSchools(query string, state string, limit int) ([]Scho
 	if err != nil {
 		return nil, err
 	}
-	
+
 	schools := make([]SchoolData, len(results))
 	for i, r := range results {
 		schools[i] = convertSchool(r)
@@ -138,31 +138,31 @@ func (w *dbWrapper) Close() error {
 // convertSchool converts main.School to cmd.SchoolData
 func convertSchool(s interface{}) SchoolData {
 	type mainSchool struct {
-		NCESSCH        string
-		Name           string
-		State          string
-		StateName      string
-		City           string
-		District       string
-		DistrictID     sql.NullString
-		SchoolYear     string
-		Teachers       sql.NullFloat64
-		Level          sql.NullString
-		Phone          sql.NullString
-		Website        sql.NullString
-		Zip            sql.NullString
-		Street1        sql.NullString
-		Street2        sql.NullString
-		Street3        sql.NullString
-		SchoolType     sql.NullString
-		GradeLow       sql.NullString
-		GradeHigh      sql.NullString
-		CharterText    sql.NullString
-		Enrollment     sql.NullInt64
+		NCESSCH     string
+		Name        string
+		State       string
+		StateName   string
+		City        string
+		District    string
+		DistrictID  sql.NullString
+		SchoolYear  string
+		Teachers    sql.NullFloat64
+		Level       sql.NullString
+		Phone       sql.NullString
+		Website     sql.NullString
+		Zip         sql.NullString
+		Street1     sql.NullString
+		Street2     sql.NullString
+		Street3     sql.NullString
+		SchoolType  sql.NullString
+		GradeLow    sql.NullString
+		GradeHigh   sql.NullString
+		CharterText sql.NullString
+		Enrollment  sql.NullInt64
 	}
-	
+
 	school := s.(mainSchool)
-	
+
 	data := SchoolData{
 		NCESSCH:    school.NCESSCH,
 		Name:       school.Name,
@@ -172,7 +172,7 @@ func convertSchool(s interface{}) SchoolData {
 		District:   school.District,
 		SchoolYear: school.SchoolYear,
 	}
-	
+
 	if school.DistrictID.Valid {
 		data.DistrictID = &school.DistrictID.String
 	}
@@ -215,7 +215,7 @@ func convertSchool(s interface{}) SchoolData {
 	if school.Enrollment.Valid {
 		data.Enrollment = &school.Enrollment.Int64
 	}
-	
+
 	return data
 }
 
@@ -237,29 +237,29 @@ func (w *aiScraperWrapper) ExtractSchoolDataWithWebSearch(school *SchoolData) (*
 
 func convertToMainSchool(s *SchoolData) interface{} {
 	type mainSchool struct {
-		NCESSCH        string
-		Name           string
-		State          string
-		StateName      string
-		City           string
-		District       string
-		DistrictID     sql.NullString
-		SchoolYear     string
-		Teachers       sql.NullFloat64
-		Level          sql.NullString
-		Phone          sql.NullString
-		Website        sql.NullString
-		Zip            sql.NullString
-		Street1        sql.NullString
-		Street2        sql.NullString
-		Street3        sql.NullString
-		SchoolType     sql.NullString
-		GradeLow       sql.NullString
-		GradeHigh      sql.NullString
-		CharterText    sql.NullString
-		Enrollment     sql.NullInt64
+		NCESSCH     string
+		Name        string
+		State       string
+		StateName   string
+		City        string
+		District    string
+		DistrictID  sql.NullString
+		SchoolYear  string
+		Teachers    sql.NullFloat64
+		Level       sql.NullString
+		Phone       sql.NullString
+		Website     sql.NullString
+		Zip         sql.NullString
+		Street1     sql.NullString
+		Street2     sql.NullString
+		Street3     sql.NullString
+		SchoolType  sql.NullString
+		GradeLow    sql.NullString
+		GradeHigh   sql.NullString
+		CharterText sql.NullString
+		Enrollment  sql.NullInt64
 	}
-	
+
 	school := mainSchool{
 		NCESSCH:    s.NCESSCH,
 		Name:       s.Name,
@@ -269,7 +269,7 @@ func convertToMainSchool(s *SchoolData) interface{} {
 		District:   s.District,
 		SchoolYear: s.SchoolYear,
 	}
-	
+
 	if s.DistrictID != nil {
 		school.DistrictID = sql.NullString{String: *s.DistrictID, Valid: true}
 	}
@@ -312,78 +312,78 @@ func convertToMainSchool(s *SchoolData) interface{} {
 	if s.Enrollment != nil {
 		school.Enrollment = sql.NullInt64{Int64: *s.Enrollment, Valid: true}
 	}
-	
+
 	return school
 }
 
 func convertEnhancedData(e interface{}) *EnhancedSchoolDataJSON {
 	type mainEnhancedData struct {
-		NCESSCH          string
-		SchoolName       string
-		ExtractedAt      time.Time
-		SourceURL        string
-		MarkdownContent  string
-		Principal        string
-		VicePrincipals   []string
-		Mascot           string
-		SchoolColors     []string
-		Founded          string
-		StaffContacts    []struct {
+		NCESSCH         string
+		SchoolName      string
+		ExtractedAt     time.Time
+		SourceURL       string
+		MarkdownContent string
+		Principal       string
+		VicePrincipals  []string
+		Mascot          string
+		SchoolColors    []string
+		Founded         string
+		StaffContacts   []struct {
 			Name       string
 			Title      string
 			Email      string
 			Phone      string
 			Department string
 		}
-		MainOfficeEmail  string
-		MainOfficePhone  string
-		APCourses        []string
-		Honors           []string
-		SpecialPrograms  []string
-		Languages        []string
-		Sports           []string
-		Clubs            []string
-		Arts             []string
-		Facilities       []string
-		BellSchedule     string
-		SchoolHours      string
-		Achievements     []string
-		Accreditations   []string
-		Mission          string
-		Notes            string
+		MainOfficeEmail string
+		MainOfficePhone string
+		APCourses       []string
+		Honors          []string
+		SpecialPrograms []string
+		Languages       []string
+		Sports          []string
+		Clubs           []string
+		Arts            []string
+		Facilities      []string
+		BellSchedule    string
+		SchoolHours     string
+		Achievements    []string
+		Accreditations  []string
+		Mission         string
+		Notes           string
 	}
-	
+
 	enhanced := e.(mainEnhancedData)
-	
+
 	data := &EnhancedSchoolDataJSON{
-		NCESSCH:          enhanced.NCESSCH,
-		SchoolName:       enhanced.SchoolName,
-		ExtractedAt:      enhanced.ExtractedAt.Format(time.RFC3339),
-		SourceURL:        enhanced.SourceURL,
-		MarkdownContent:  enhanced.MarkdownContent,
-		Principal:        enhanced.Principal,
-		VicePrincipals:   enhanced.VicePrincipals,
-		Mascot:           enhanced.Mascot,
-		SchoolColors:     enhanced.SchoolColors,
-		Founded:          enhanced.Founded,
-		MainOfficeEmail:  enhanced.MainOfficeEmail,
-		MainOfficePhone:  enhanced.MainOfficePhone,
-		APCourses:        enhanced.APCourses,
-		Honors:           enhanced.Honors,
-		SpecialPrograms:  enhanced.SpecialPrograms,
-		Languages:        enhanced.Languages,
-		Sports:           enhanced.Sports,
-		Clubs:            enhanced.Clubs,
-		Arts:             enhanced.Arts,
-		Facilities:       enhanced.Facilities,
-		BellSchedule:     enhanced.BellSchedule,
-		SchoolHours:      enhanced.SchoolHours,
-		Achievements:     enhanced.Achievements,
-		Accreditations:   enhanced.Accreditations,
-		Mission:          enhanced.Mission,
-		Notes:            enhanced.Notes,
+		NCESSCH:         enhanced.NCESSCH,
+		SchoolName:      enhanced.SchoolName,
+		ExtractedAt:     enhanced.ExtractedAt.Format(time.RFC3339),
+		SourceURL:       enhanced.SourceURL,
+		MarkdownContent: enhanced.MarkdownContent,
+		Principal:       enhanced.Principal,
+		VicePrincipals:  enhanced.VicePrincipals,
+		Mascot:          enhanced.Mascot,
+		SchoolColors:    enhanced.SchoolColors,
+		Founded:         enhanced.Founded,
+		MainOfficeEmail: enhanced.MainOfficeEmail,
+		MainOfficePhone: enhanced.MainOfficePhone,
+		APCourses:       enhanced.APCourses,
+		Honors:          enhanced.Honors,
+		SpecialPrograms: enhanced.SpecialPrograms,
+		Languages:       enhanced.Languages,
+		Sports:          enhanced.Sports,
+		Clubs:           enhanced.Clubs,
+		Arts:            enhanced.Arts,
+		Facilities:      enhanced.Facilities,
+		BellSchedule:    enhanced.BellSchedule,
+		SchoolHours:     enhanced.SchoolHours,
+		Achievements:    enhanced.Achievements,
+		Accreditations:  enhanced.Accreditations,
+		Mission:         enhanced.Mission,
+		Notes:           enhanced.Notes,
 	}
-	
+
 	for _, contact := range enhanced.StaffContacts {
 		data.StaffContacts = append(data.StaffContacts, StaffContact{
 			Name:       contact.Name,
@@ -393,6 +393,6 @@ func convertEnhancedData(e interface{}) *EnhancedSchoolDataJSON {
 			Department: contact.Department,
 		})
 	}
-	
+
 	return data
 }

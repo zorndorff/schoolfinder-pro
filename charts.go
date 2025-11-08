@@ -467,9 +467,9 @@ func NAEPAchievementBar(label string, belowBasic, atBasic, atProficient, atAdvan
 
 	// Styles for each level
 	belowBasicStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))   // Red
-	atBasicStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))       // Orange
-	atProficientStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))  // Yellow
-	atAdvancedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))     // Green
+	atBasicStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))      // Orange
+	atProficientStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")) // Yellow
+	atAdvancedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))    // Green
 
 	bar := belowBasicStyle.Render(strings.Repeat("█", belowBasicWidth)) +
 		atBasicStyle.Render(strings.Repeat("█", atBasicWidth)) +
@@ -544,8 +544,8 @@ func NAEPScoreGauge(score float64, width int) string {
 	}
 
 	// Add markers for common benchmarks
-	basicPos := int(0.4 * float64(width))    // ~200 score
-	profPos := int(0.6 * float64(width))     // ~300 score
+	basicPos := int(0.4 * float64(width)) // ~200 score
+	profPos := int(0.6 * float64(width))  // ~300 score
 
 	if basicPos >= 0 && basicPos < width && gauge[basicPos] != '◆' {
 		gauge[basicPos] = '┆'
@@ -797,10 +797,10 @@ func NAEPNationalComparison(label string, localScore, nationalScore float64, wid
 	diff := localScore - nationalScore
 
 	if diff >= 5 {
-		localColor = lipgloss.Color("46")  // Bright green - significantly above
+		localColor = lipgloss.Color("46") // Bright green - significantly above
 		indicator = "↑↑"
 	} else if diff >= 2 {
-		localColor = lipgloss.Color("82")  // Green - above
+		localColor = lipgloss.Color("82") // Green - above
 		indicator = "↑"
 	} else if diff >= -2 {
 		localColor = lipgloss.Color("226") // Yellow - near national average

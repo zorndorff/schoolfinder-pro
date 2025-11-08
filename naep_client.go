@@ -14,11 +14,11 @@ import (
 
 // NAEPScore represents a single NAEP assessment score
 type NAEPScore struct {
-	Subject      string  `json:"subject"`
-	Grade        int     `json:"grade"`
-	Year         int     `json:"year"`
-	Jurisdiction string  `json:"jurisdiction"`      // Full name like "California" or "Los Angeles"
-	JurisCode    string  `json:"jurisdiction_code"` // NAEP code like "CA" or "XL"
+	Subject      string `json:"subject"`
+	Grade        int    `json:"grade"`
+	Year         int    `json:"year"`
+	Jurisdiction string `json:"jurisdiction"`      // Full name like "California" or "Los Angeles"
+	JurisCode    string `json:"jurisdiction_code"` // NAEP code like "CA" or "XL"
 
 	// Statistical data
 	MeanScore   float64 `json:"mean_score"`
@@ -54,8 +54,8 @@ type NAEPClient struct {
 
 // NAEP API response structures
 type naepAPIResponse struct {
-	Status int              `json:"status"`
-	Result []naepDataPoint  `json:"result"`
+	Status int             `json:"status"`
+	Result []naepDataPoint `json:"result"`
 }
 
 type naepDataPoint struct {
@@ -67,33 +67,33 @@ type naepDataPoint struct {
 
 // Map of NAEP large city districts to jurisdiction codes
 var naepDistrictMap = map[string]string{
-	"albuquerque":                      "XQ",
-	"atlanta":                          "XA",
-	"austin":                           "XU",
-	"baltimore city":                   "XM",
-	"boston":                           "XB",
-	"charlotte":                        "XT",
-	"chicago":                          "XC",
-	"clark county":                     "XX",
-	"cleveland":                        "XV",
-	"dallas":                           "XS",
-	"denver":                           "XY",
-	"detroit":                          "XR",
-	"district of columbia":             "XW",
-	"duval county":                     "XE",
-	"fort worth":                       "XZ",
-	"fresno":                           "XF",
-	"guilford county":                  "XG",
-	"hillsborough county":              "XO",
-	"houston":                          "XH",
-	"jefferson county":                 "XJ",
-	"los angeles":                      "XL",
-	"miami-dade":                       "XI",
-	"milwaukee":                        "XK",
-	"new york city":                    "XN",
-	"philadelphia":                     "XP",
-	"san diego":                        "XD",
-	"shelby county":                    "YA",
+	"albuquerque":          "XQ",
+	"atlanta":              "XA",
+	"austin":               "XU",
+	"baltimore city":       "XM",
+	"boston":               "XB",
+	"charlotte":            "XT",
+	"chicago":              "XC",
+	"clark county":         "XX",
+	"cleveland":            "XV",
+	"dallas":               "XS",
+	"denver":               "XY",
+	"detroit":              "XR",
+	"district of columbia": "XW",
+	"duval county":         "XE",
+	"fort worth":           "XZ",
+	"fresno":               "XF",
+	"guilford county":      "XG",
+	"hillsborough county":  "XO",
+	"houston":              "XH",
+	"jefferson county":     "XJ",
+	"los angeles":          "XL",
+	"miami-dade":           "XI",
+	"milwaukee":            "XK",
+	"new york city":        "XN",
+	"philadelphia":         "XP",
+	"san diego":            "XD",
+	"shelby county":        "YA",
 }
 
 // NAEP subject codes

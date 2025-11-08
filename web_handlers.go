@@ -25,27 +25,27 @@ type WebHandler struct {
 // NAEPScoreView extends NAEPScore with pre-calculated achievement levels for templating
 type NAEPScoreView struct {
 	NAEPScore
-	BelowBasicPct    float64
-	BasicPct         float64
-	ProficientPct    float64
-	AdvancedPct      float64
-	NationalScore    *NAEPScoreView // Matching national score for comparison
-	NationalCompare  string         // "Above" or "Below"
+	BelowBasicPct   float64
+	BasicPct        float64
+	ProficientPct   float64
+	AdvancedPct     float64
+	NationalScore   *NAEPScoreView // Matching national score for comparison
+	NationalCompare string         // "Above" or "Below"
 }
 
 // NAEPDataView wraps NAEPData with enriched scores for templating
 type NAEPDataView struct {
-	NCESSCH         string
-	State           string
-	District        string
-	ExtractedAt     time.Time
-	StateScores     []NAEPScoreView
-	DistrictScores  []NAEPScoreView
-	NationalScores  []NAEPScoreView
-	UseDistrict     bool
-	Grade4Scores    []NAEPScoreView
-	Grade8Scores    []NAEPScoreView
-	NationalByKey   map[string]*NAEPScoreView // key: "subject-grade"
+	NCESSCH        string
+	State          string
+	District       string
+	ExtractedAt    time.Time
+	StateScores    []NAEPScoreView
+	DistrictScores []NAEPScoreView
+	NationalScores []NAEPScoreView
+	UseDistrict    bool
+	Grade4Scores   []NAEPScoreView
+	Grade8Scores   []NAEPScoreView
+	NationalByKey  map[string]*NAEPScoreView // key: "subject-grade"
 }
 
 // NewWebHandler creates a new WebHandler with parsed templates
@@ -254,7 +254,7 @@ func (h *WebHandler) FetchNAEP(w http.ResponseWriter, r *http.Request) {
 		// Check if this is a "no data available" error vs a real server error
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "no NAEP data available") ||
-		   strings.Contains(errMsg, "no NAEP grades applicable") {
+			strings.Contains(errMsg, "no NAEP grades applicable") {
 			// Return 200 with content indicating no data available
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)

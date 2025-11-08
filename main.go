@@ -18,7 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	
+
 	"schoolfinder/cmd"
 )
 
@@ -45,7 +45,7 @@ func setupLogger(dataDir string) error {
 
 	// Create JSON handler for structured logging
 	handler := slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level:     slog.LevelInfo,
 		AddSource: true, // Include file:line information
 	})
 
@@ -91,28 +91,28 @@ const (
 )
 
 type model struct {
-	db              *DB
-	aiScraper       *AIScraperService
-	naepClient      *NAEPClient
-	currentView     view
-	searchInput     textinput.Model
-	saveInput       textinput.Model
-	viewport        viewport.Model
-	stateFilter     string
-	schools         []School
-	list            list.Model
-	selectedItem    *School
-	enhancedData    *EnhancedSchoolData
-	naepData        *NAEPData
-	width           int
-	height          int
-	err             error
-	loading         bool
-	scrapingAI      bool
-	loadingNAEP     bool
-	saveSuccess     string
-	viewportReady   bool
-	autoFetchNAEP   bool // Auto-fetch NAEP data when viewing details
+	db            *DB
+	aiScraper     *AIScraperService
+	naepClient    *NAEPClient
+	currentView   view
+	searchInput   textinput.Model
+	saveInput     textinput.Model
+	viewport      viewport.Model
+	stateFilter   string
+	schools       []School
+	list          list.Model
+	selectedItem  *School
+	enhancedData  *EnhancedSchoolData
+	naepData      *NAEPData
+	width         int
+	height        int
+	err           error
+	loading       bool
+	scrapingAI    bool
+	loadingNAEP   bool
+	saveSuccess   string
+	viewportReady bool
+	autoFetchNAEP bool // Auto-fetch NAEP data when viewing details
 }
 
 type schoolItem struct {
@@ -525,7 +525,7 @@ func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if item, ok := m.list.SelectedItem().(schoolItem); ok {
 				m.selectedItem = &item.school
 				m.currentView = detailView
-				m.viewport.GotoTop() // Reset scroll position
+				m.viewport.GotoTop()     // Reset scroll position
 				m.updateDetailViewport() // Load content into viewport
 
 				// Auto-fetch NAEP data if enabled
@@ -1573,32 +1573,32 @@ func convertCmdToSchool(s *cmd.SchoolData) School {
 // convertEnhancedToCmd converts EnhancedSchoolData to cmd.EnhancedSchoolDataJSON
 func convertEnhancedToCmd(e *EnhancedSchoolData) *cmd.EnhancedSchoolDataJSON {
 	data := &cmd.EnhancedSchoolDataJSON{
-		NCESSCH:          e.NCESSCH,
-		SchoolName:       e.SchoolName,
-		ExtractedAt:      e.ExtractedAt.Format("2006-01-02T15:04:05Z07:00"),
-		SourceURL:        e.SourceURL,
-		MarkdownContent:  e.MarkdownContent,
-		Principal:        e.Principal,
-		VicePrincipals:   e.VicePrincipals,
-		Mascot:           e.Mascot,
-		SchoolColors:     e.SchoolColors,
-		Founded:          e.Founded,
-		MainOfficeEmail:  e.MainOfficeEmail,
-		MainOfficePhone:  e.MainOfficePhone,
-		APCourses:        e.APCourses,
-		Honors:           e.Honors,
-		SpecialPrograms:  e.SpecialPrograms,
-		Languages:        e.Languages,
-		Sports:           e.Sports,
-		Clubs:            e.Clubs,
-		Arts:             e.Arts,
-		Facilities:       e.Facilities,
-		BellSchedule:     e.BellSchedule,
-		SchoolHours:      e.SchoolHours,
-		Achievements:     e.Achievements,
-		Accreditations:   e.Accreditations,
-		Mission:          e.Mission,
-		Notes:            e.Notes,
+		NCESSCH:         e.NCESSCH,
+		SchoolName:      e.SchoolName,
+		ExtractedAt:     e.ExtractedAt.Format("2006-01-02T15:04:05Z07:00"),
+		SourceURL:       e.SourceURL,
+		MarkdownContent: e.MarkdownContent,
+		Principal:       e.Principal,
+		VicePrincipals:  e.VicePrincipals,
+		Mascot:          e.Mascot,
+		SchoolColors:    e.SchoolColors,
+		Founded:         e.Founded,
+		MainOfficeEmail: e.MainOfficeEmail,
+		MainOfficePhone: e.MainOfficePhone,
+		APCourses:       e.APCourses,
+		Honors:          e.Honors,
+		SpecialPrograms: e.SpecialPrograms,
+		Languages:       e.Languages,
+		Sports:          e.Sports,
+		Clubs:           e.Clubs,
+		Arts:            e.Arts,
+		Facilities:      e.Facilities,
+		BellSchedule:    e.BellSchedule,
+		SchoolHours:     e.SchoolHours,
+		Achievements:    e.Achievements,
+		Accreditations:  e.Accreditations,
+		Mission:         e.Mission,
+		Notes:           e.Notes,
 	}
 
 	for _, contact := range e.StaffContacts {

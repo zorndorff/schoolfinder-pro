@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	port int
+	port     int
 	serveCmd = &cobra.Command{
 		Use:   "serve",
 		Short: "Start the web server",

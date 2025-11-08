@@ -34,7 +34,7 @@ func StartServer(config ServerConfig) error {
 
 	// Favicon route - serve from project root
 	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, "./static/favicon.ico")
+		http.ServeFile(w, r, "./static/favicon.ico")
 	})
 
 	// Web handlers (HTMX HTML responses)

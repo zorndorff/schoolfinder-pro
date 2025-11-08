@@ -41,7 +41,7 @@ Example:
 		ctx := context.Background()
 
 		// Create language model with Claude Haiku 4.5
-		model, err := provider.LanguageModel(ctx, "claude-haiku-4.5-20251001")
+		model, err := provider.LanguageModel(ctx, "claude-haiku-4-5")
 		if err != nil {
 			HandleError(err, "Failed to initialize Claude model")
 		}

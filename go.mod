@@ -3,6 +3,7 @@ module schoolfinder
 go 1.25.1
 
 require (
+	charm.land/fantasy v0.5.0
 	github.com/anthropics/anthropic-sdk-go v1.14.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v0.21.0

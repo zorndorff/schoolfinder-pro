@@ -8,6 +8,7 @@ import (
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
 	"github.com/spf13/cobra"
+	"schoolfinder/internal/agent"
 )
 
 var askCmd = &cobra.Command{
@@ -46,14 +47,19 @@ Example:
 			HandleError(err, "Failed to initialize Claude model")
 		}
 
-		// Create a simple agent with no tools for now
-		agent := fantasy.NewAgent(
+		// Create tools from registered Cobra commands
+		// Exclude 'serve' and 'ask' commands from tool generation
+		tools := agent.CreateToolsFromCommands(rootCmd, dataDir, []string{"serve", "ask"})
+
+		// Create agent with command tools
+		fantasyAgent := fantasy.NewAgent(
 			model,
-			fantasy.WithSystemPrompt("You are a helpful assistant specializing in education and school-related topics. Provide clear, concise, and informative answers."),
+			fantasy.WithSystemPrompt("You are a helpful assistant specializing in education and school-related topics. You have access to tools that can search schools, get school details, and scrape enhanced data from school websites. Use these tools when appropriate to provide accurate, data-backed answers."),
+			fantasy.WithTools(tools...),
 		)
 
 		// Generate the response
-		result, err := agent.Generate(ctx, fantasy.AgentCall{Prompt: question})
+		result, err := fantasyAgent.Generate(ctx, fantasy.AgentCall{Prompt: question})
 		if err != nil {
 			HandleError(err, "Failed to generate response")
 		}
@@ -62,6 +68,7 @@ Example:
 		fmt.Println(result.Response.Content.Text())
 	},
 }
+
 
 func init() {
 	rootCmd.AddCommand(askCmd)

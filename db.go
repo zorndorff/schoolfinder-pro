@@ -7,31 +7,31 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/duckdb/duckdb-go/v2"
 )
 
 type School struct {
-	NCESSCH        string
-	Name           string
-	State          string
-	StateName      string
-	City           string
-	District       string
-	DistrictID     sql.NullString // LEAID for NAEP district matching
-	SchoolYear     string
-	Teachers       sql.NullFloat64
-	Level          sql.NullString
-	Phone          sql.NullString
-	Website        sql.NullString
-	Zip            sql.NullString
-	Street1        sql.NullString
-	Street2        sql.NullString
-	Street3        sql.NullString
-	SchoolType     sql.NullString
-	GradeLow       sql.NullString
-	GradeHigh      sql.NullString
-	CharterText    sql.NullString
-	Enrollment     sql.NullInt64
+	NCESSCH     string
+	Name        string
+	State       string
+	StateName   string
+	City        string
+	District    string
+	DistrictID  sql.NullString // LEAID for NAEP district matching
+	SchoolYear  string
+	Teachers    sql.NullFloat64
+	Level       sql.NullString
+	Phone       sql.NullString
+	Website     sql.NullString
+	Zip         sql.NullString
+	Street1     sql.NullString
+	Street2     sql.NullString
+	Street3     sql.NullString
+	SchoolType  sql.NullString
+	GradeLow    sql.NullString
+	GradeHigh   sql.NullString
+	CharterText sql.NullString
+	Enrollment  sql.NullInt64
 }
 
 type DB struct {

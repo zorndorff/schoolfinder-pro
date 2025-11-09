@@ -291,9 +291,8 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 		args = append(args, query)
 
 		stateFilter := ""
-		argIdx := 1
 		if state != "" {
-			argIdx = 2
+			argIdx := 2
 			stateFilter = fmt.Sprintf("AND d.ST = $%d", argIdx)
 			args = append(args, state)
 		}

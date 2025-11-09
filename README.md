@@ -136,6 +136,45 @@ LIMIT 100
 - Memory usage: ~50MB binary + DuckDB overhead
 - Data files: Read directly from CSV (no import needed)
 
+## Testing
+
+The project includes comprehensive tests for database operations and TUI functionality using **mock CSV data** (no need to download the full 2.3GB dataset).
+
+### Run Tests
+
+```bash
+# Quick test
+make test
+
+# Verbose output
+make test-verbose
+
+# With coverage report
+make test-coverage
+
+# With race detector
+make test-race
+
+# Or using go test directly
+go test -v ./...
+```
+
+### Test Coverage
+
+- **Database Layer Tests** (`db_test.go`): Search, retrieval, field handling, helper methods
+- **TUI Model Tests** (`tui_test.go`): State management, view transitions, key handling, rendering
+- **NAEP Client Tests** (`naep_client_test.go`): Grade determination, district matching, score sorting
+
+### Mock Data
+
+Tests use 5 mock schools from `testdata/` directory:
+- Lincoln Elementary (CA), Washington High (CA), Jefferson Middle (TX)
+- Roosevelt Charter (NY), Madison K-8 (FL)
+
+**Performance**: All tests run in ~5 seconds using in-memory test databases.
+
+See [TESTING.md](TESTING.md) for detailed testing documentation.
+
 ## Shell Script Alternative
 
 For a simpler command-line alternative, see `find-school.sh` which provides similar functionality using bash, DuckDB CLI, and fzf.

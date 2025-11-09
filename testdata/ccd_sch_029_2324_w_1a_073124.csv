@@ -1,0 +1,6 @@
+NCESSCH,SCH_NAME,ST,STATENAME,MCITY,LEA_NAME,LEAID,SCHOOL_YEAR,LEVEL,PHONE,WEBSITE,MZIP,MSTREET1,MSTREET2,MSTREET3,SCH_TYPE_TEXT,GSLO,GSHI,CHARTER_TEXT
+360000100001,Lincoln Elementary School,CA,California,San Francisco,San Francisco Unified School District,0600000,2023-2024,Elementary,415-555-0100,https://lincoln.sfusd.edu,94102,123 Lincoln St,,,Regular school,PK,05,Not applicable
+360000100002,Washington High School,CA,California,Los Angeles,Los Angeles Unified School District,0600001,2023-2024,High,213-555-0200,https://washington.lausd.net,90001,456 Washington Ave,,,Regular school,09,12,Not applicable
+360000100003,Jefferson Middle School,TX,Texas,Houston,Houston Independent School District,4800000,2023-2024,Middle,713-555-0300,https://jefferson.houstonisd.org,77001,789 Jefferson Rd,,,Regular school,06,08,Not applicable
+360000100004,Roosevelt Charter School,NY,New York,New York City,New York City Department Of Education,3600000,2023-2024,High,212-555-0400,https://roosevelt.charter.org,10001,321 Roosevelt Blvd,,,Charter school,09,12,Yes
+360000100005,Madison K-8 School,FL,Florida,Miami,Miami-Dade County Public Schools,1200000,2023-2024,Other,305-555-0500,https://madison.dadeschools.net,33101,654 Madison Pkwy,,,Regular school,KG,08,Not applicable

@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
-	"time"
 )
 
 // SchoolData represents a school record (matches main.School)

@@ -147,8 +147,7 @@ func TestCreateToolForCommand(t *testing.T) {
 			Input: `{"query": "test school", "state": "CA", "limit": 10}`,
 		}
 
-		agentTool := tool.(fantasy.AgentTool)
-		result, err := agentTool.Run(ctx, toolCall)
+		result, err := tool.Run(ctx, toolCall)
 		if err != nil {
 			t.Errorf("Tool execution failed: %v", err)
 		}
@@ -172,8 +171,7 @@ func TestCreateToolForCommand(t *testing.T) {
 			Input: `{"state": "CA"}`,
 		}
 
-		agentTool := tool.(fantasy.AgentTool)
-		result, err := agentTool.Run(ctx, toolCall)
+		result, err := tool.Run(ctx, toolCall)
 		if err != nil {
 			t.Errorf("Tool execution failed: %v", err)
 		}
@@ -205,8 +203,7 @@ func TestDetailsToolExecution(t *testing.T) {
 		Input: `{"school_id": "12345"}`,
 	}
 
-	agentTool := tool.(fantasy.AgentTool)
-	result, err := agentTool.Run(ctx, toolCall)
+	result, err := tool.Run(ctx, toolCall)
 	if err != nil {
 		t.Errorf("Details tool execution failed: %v", err)
 	}
@@ -241,8 +238,7 @@ func TestScrapeToolExecution(t *testing.T) {
 		Input: `{"school_id": "12345"}`,
 	}
 
-	agentTool := tool.(fantasy.AgentTool)
-	result, err := agentTool.Run(ctx, toolCall)
+	result, err := tool.Run(ctx, toolCall)
 	if err != nil {
 		t.Errorf("Scrape tool execution failed: %v", err)
 	}
@@ -277,8 +273,7 @@ func TestUnsupportedCommand(t *testing.T) {
 		Input: `{}`,
 	}
 
-	agentTool := tool.(fantasy.AgentTool)
-	result, err := agentTool.Run(ctx, toolCall)
+	result, err := tool.Run(ctx, toolCall)
 	if err != nil {
 		t.Errorf("Tool execution failed: %v", err)
 	}

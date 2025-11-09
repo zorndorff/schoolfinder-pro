@@ -122,7 +122,9 @@ func (d *DB) initializeDatabase() error {
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback() // Ignore error - will fail if transaction was committed
+	}()
 
 	// Create directory table
 	fmt.Println("   Loading school directory...")
@@ -287,11 +289,10 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 	if query != "" {
 		// Use full-text search with relevance ranking
 		args = append(args, query)
-		argIdx := 1
 
 		stateFilter := ""
 		if state != "" {
-			argIdx = 2
+			argIdx := 2
 			stateFilter = fmt.Sprintf("AND d.ST = $%d", argIdx)
 			args = append(args, state)
 		}

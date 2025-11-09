@@ -103,7 +103,7 @@ func PromptUserForDownload(missing []DataFile) bool {
 	fmt.Print("\nWould you like to download them now? (y/N): ")
 
 	var response string
-	fmt.Scanln(&response)
+	_, _ = fmt.Scanln(&response) // Ignore error - defaults to empty string if input fails
 	response = strings.ToLower(strings.TrimSpace(response))
 
 	return response == "y" || response == "yes"

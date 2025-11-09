@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -136,7 +135,10 @@ func (h *WebHandler) SchoolDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			// Parse legacy data if available
 			if len(legacyData) > 0 {
-				json.Unmarshal(legacyData, enhancedData)
+				if err := json.Unmarshal(legacyData, enhancedData); err != nil {
+					// Log error but continue - enhanced data is optional
+					log.Printf("Warning: failed to unmarshal legacy data: %v", err)
+				}
 			}
 		}
 	}
@@ -156,15 +158,21 @@ func (h *WebHandler) SchoolDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			// Unmarshal state scores
 			if len(stateScoresJSON) > 0 {
-				json.Unmarshal(stateScoresJSON, &naepData.StateScores)
+				if err := json.Unmarshal(stateScoresJSON, &naepData.StateScores); err != nil {
+					log.Printf("Warning: failed to unmarshal state scores: %v", err)
+				}
 			}
 			// Unmarshal district scores
 			if len(districtScoresJSON) > 0 {
-				json.Unmarshal(districtScoresJSON, &naepData.DistrictScores)
+				if err := json.Unmarshal(districtScoresJSON, &naepData.DistrictScores); err != nil {
+					log.Printf("Warning: failed to unmarshal district scores: %v", err)
+				}
 			}
 			// Unmarshal national scores
 			if len(nationalScoresJSON) > 0 {
-				json.Unmarshal(nationalScoresJSON, &naepData.NationalScores)
+				if err := json.Unmarshal(nationalScoresJSON, &naepData.NationalScores); err != nil {
+					log.Printf("Warning: failed to unmarshal national scores: %v", err)
+				}
 			}
 			// Enrich the cached data for template
 			naepView = h.enrichNAEPData(naepData)
@@ -258,12 +266,14 @@ func (h *WebHandler) FetchNAEP(w http.ResponseWriter, r *http.Request) {
 			// Return 200 with content indicating no data available
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`<div class="naep-no-data">
+			if _, err := w.Write([]byte(`<div class="naep-no-data">
 				<p class="help-text error-message">
 					<strong>No NAEP Data Available</strong><br>
 					Assessment data is not available for this school.
 				</p>
-			</div>`))
+			</div>`)); err != nil {
+				log.Printf("Warning: failed to write response: %v", err)
+			}
 			return
 		}
 
@@ -364,28 +374,3 @@ func (h *WebHandler) enrichScore(score NAEPScore, data *NAEPData, useDistrict bo
 	}
 }
 
-// Helper function to parse templates
-func parseTemplates() (*template.Template, error) {
-	tmpl := template.New("")
-
-	// Parse all templates
-	layouts, err := filepath.Glob("templates/*.html")
-	if err != nil {
-		return nil, err
-	}
-
-	partials, err := filepath.Glob("templates/partials/*.html")
-	if err != nil {
-		return nil, err
-	}
-
-	allTemplates := append(layouts, partials...)
-	for _, file := range allTemplates {
-		_, err := tmpl.ParseFiles(file)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return tmpl, nil
-}

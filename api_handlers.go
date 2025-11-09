@@ -73,7 +73,10 @@ func (h *APIHandler) GetSchool(w http.ResponseWriter, r *http.Request) {
 			}
 			// Parse legacy data if available
 			if len(legacyData) > 0 {
-				json.Unmarshal(legacyData, enhancedData)
+				if err := json.Unmarshal(legacyData, enhancedData); err != nil {
+					// Log error but continue - enhanced data is optional
+					log.Printf("Warning: failed to unmarshal legacy data: %v", err)
+				}
 			}
 		}
 	}

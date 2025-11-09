@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -180,7 +181,9 @@ func (c *NAEPClient) FetchNAEPData(school *School) (*NAEPData, error) {
 	sortNAEPScores(data.NationalScores)
 
 	// Cache the data
-	c.cacheData(school.NCESSCH, data)
+	if err := c.cacheData(school.NCESSCH, data); err != nil {
+		log.Printf("Warning: failed to cache NAEP data: %v", err)
+	}
 
 	return data, nil
 }

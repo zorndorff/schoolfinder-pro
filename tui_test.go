@@ -81,13 +81,8 @@ func TestSearchViewKeyHandling(t *testing.T) {
 			}
 
 			if tc.expectedAction == "cycle_state" {
-				if m.stateFilter == "" {
-					// First cycle should set to first state
-					if m.stateFilter == "" {
-						// If query is empty, state filter won't trigger search
-						// Just verify the state changed from initial
-					}
-				}
+				// State filter should have cycled (tested more thoroughly in TestStateFilterCycling)
+				// This is a basic smoke test for the key binding
 			}
 		})
 	}

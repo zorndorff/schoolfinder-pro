@@ -143,20 +143,18 @@ The project includes comprehensive tests for database operations and TUI functio
 ### Run Tests
 
 ```bash
-# Quick test
-make test
+# Run all tests
+go test ./...
 
 # Verbose output
-make test-verbose
+go test -v ./...
 
 # With coverage report
-make test-coverage
+go test -v -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
 
 # With race detector
-make test-race
-
-# Or using go test directly
-go test -v ./...
+go test -v -race ./...
 ```
 
 ### Test Coverage

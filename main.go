@@ -406,9 +406,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.currentView == detailView {
+		switch m.currentView {
+		case detailView:
 			return m.handleDetailViewKeys(msg)
-		} else if m.currentView == savePromptView {
+		case savePromptView:
 			return m.handleSavePromptKeys(msg)
 		}
 		return m.handleSearchViewKeys(msg)
@@ -677,9 +678,10 @@ func (m model) handleSavePromptKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	if m.currentView == detailView {
+	switch m.currentView {
+	case detailView:
 		return m.detailViewRender()
-	} else if m.currentView == savePromptView {
+	case savePromptView:
 		return m.savePromptView()
 	}
 	return m.searchViewRender()

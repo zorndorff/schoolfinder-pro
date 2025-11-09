@@ -338,9 +338,10 @@ func (h *WebHandler) enrichNAEPData(data *NAEPData) *NAEPDataView {
 	}
 
 	for _, score := range primaryScores {
-		if score.Grade == 4 {
+		switch score.Grade {
+		case 4:
 			view.Grade4Scores = append(view.Grade4Scores, score)
-		} else if score.Grade == 8 {
+		case 8:
 			view.Grade8Scores = append(view.Grade8Scores, score)
 		}
 	}
@@ -373,4 +374,3 @@ func (h *WebHandler) enrichScore(score NAEPScore, data *NAEPData, useDistrict bo
 		AdvancedPct:   advanced,
 	}
 }
-

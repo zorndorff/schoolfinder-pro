@@ -79,11 +79,6 @@ func TestSearchViewKeyHandling(t *testing.T) {
 					t.Error("Expected focus to change")
 				}
 			}
-
-			if tc.expectedAction == "cycle_state" {
-				// State filter should have cycled (tested more thoroughly in TestStateFilterCycling)
-				// This is a basic smoke test for the key binding
-			}
 		})
 	}
 }

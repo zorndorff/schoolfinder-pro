@@ -94,4 +94,3 @@ func HandleError(err error, message string) {
 	fmt.Fprintf(os.Stderr, "Error: %s: %v\n", message, err)
 	os.Exit(1)
 }
-

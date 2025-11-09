@@ -373,4 +373,3 @@ func (h *WebHandler) enrichScore(score NAEPScore, data *NAEPData, useDistrict bo
 		AdvancedPct:   advanced,
 	}
 }
-

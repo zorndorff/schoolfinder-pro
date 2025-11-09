@@ -25,6 +25,10 @@ type ScrapeInput struct {
 	SchoolID string `json:"school_id" jsonschema:"required,description=The NCESSCH ID of the school to scrape enhanced data for"`
 }
 
+type GenericInput struct {
+	Args string `json:"args,omitempty" jsonschema:"description=Arguments for the command"`
+}
+
 // DBInterface defines the database operations needed for tools
 type DBInterface interface {
 	SearchSchools(query string, state string, limit int) ([]interface{}, error)
@@ -224,7 +228,7 @@ func createToolForCommand(
 		return fantasy.NewAgentTool(
 			cmdName,
 			description,
-			func(ctx context.Context, input map[string]interface{}, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			func(ctx context.Context, input GenericInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("unsupported command: %s", cmdName)), nil
 			},
 		)

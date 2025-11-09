@@ -228,13 +228,14 @@ func BoxPlot(value, min, q1, median, q3, max float64, width int) string {
 	// Color the string
 	result := ""
 	for _, r := range plot {
-		if r == '┃' {
+		switch r {
+		case '┃':
 			result += medianStyle.Render(string(r))
-		} else if r == '●' {
+		case '●':
 			result += valueStyle.Render(string(r))
-		} else if r == '█' || r == '│' {
+		case '█', '│':
 			result += boxStyle.Render(string(r))
-		} else {
+		default:
 			result += string(r)
 		}
 	}

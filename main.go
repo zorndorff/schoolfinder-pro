@@ -706,7 +706,7 @@ func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyCtrlT:
+	case tea.KeyCtrlI:
 		// Toggle AI mode
 		m.useAI = !m.useAI
 		// Clear previous results when switching modes
@@ -870,9 +870,9 @@ func (m model) searchViewRender() string {
 	toggleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("33"))
 	if m.useAI {
-		b.WriteString(toggleStyle.Render("🤖 AI Mode: ON (Ctrl+T to toggle)"))
+		b.WriteString(toggleStyle.Render("🤖 AI Mode: ON (Ctrl+I to toggle)"))
 	} else {
-		b.WriteString(toggleStyle.Render("🔍 Search Mode: ON (Ctrl+T to toggle)"))
+		b.WriteString(toggleStyle.Render("🔍 Search Mode: ON (Ctrl+I to toggle)"))
 	}
 	b.WriteString("\n")
 
@@ -972,9 +972,9 @@ func (m model) searchViewRender() string {
 
 	var help string
 	if m.useAI {
-		help = "\nEnter: Ask AI | Ctrl+T: Toggle mode | Esc/Ctrl+C: Quit"
+		help = "\nEnter: Ask AI | Ctrl+I: Toggle mode | Esc/Ctrl+C: Quit"
 	} else {
-		help = "\nTab: Switch focus | Enter: Search/Select | Ctrl+S: Filter by state | Ctrl+T: Toggle AI mode | Esc/Ctrl+C: Quit"
+		help = "\nTab: Switch focus | Enter: Search/Select | Ctrl+S: Filter by state | Ctrl+I: Toggle AI mode | Esc/Ctrl+C: Quit"
 	}
 	b.WriteString(helpStyle.Render(help))
 

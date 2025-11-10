@@ -34,6 +34,11 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+// GetRootCmd returns the root command for use in other packages
+func GetRootCmd() *cobra.Command {
+	return rootCmd
+}
+
 // SetupLogger creates and configures the application logger
 func SetupLogger(dataDir string) error {
 	logPath := filepath.Join(dataDir, "err.log")

@@ -720,7 +720,9 @@ func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.searchInput.Placeholder = "Search schools by name, city, district, address, or zip..."
 		}
-		return m, nil
+		// Ensure input is focused after toggle
+		m.searchInput.Focus()
+		return m, textinput.Blink
 	}
 
 	var cmd tea.Cmd

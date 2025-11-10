@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"charm.land/fantasy"
+	"charm.land/fantasy/providers/anthropic"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -20,6 +22,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"schoolfinder/cmd"
+	"schoolfinder/internal/agent"
 )
 
 const (
@@ -94,6 +97,7 @@ type model struct {
 	db            *DB
 	aiScraper     *AIScraperService
 	naepClient    *NAEPClient
+	dataDir       string
 	currentView   view
 	searchInput   textinput.Model
 	saveInput     textinput.Model
@@ -113,6 +117,9 @@ type model struct {
 	saveSuccess   string
 	viewportReady bool
 	autoFetchNAEP bool // Auto-fetch NAEP data when viewing details
+	useAI         bool // Use AI ask mode instead of search
+	aiResponse    string
+	askingAI      bool
 }
 
 type schoolItem struct {
@@ -158,6 +165,11 @@ type saveMsg struct {
 type naepDataMsg struct {
 	data *NAEPData
 	err  error
+}
+
+type askMsg struct {
+	response string
+	err      error
 }
 
 func scrapeSchoolWebsite(scraper *AIScraperService, school *School) tea.Cmd {
@@ -332,7 +344,109 @@ func searchSchools(db *DB, query, state string) tea.Cmd {
 	}
 }
 
-func initialModel(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) model {
+func askQuestion(question, dataDir string) tea.Cmd {
+	return func() tea.Msg {
+		// Get API key from environment
+		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey == "" {
+			return askMsg{err: fmt.Errorf("ANTHROPIC_API_KEY not set")}
+		}
+
+		// Create Fantasy provider for Anthropic
+		provider, err := anthropic.New(anthropic.WithAPIKey(apiKey))
+		if err != nil {
+			return askMsg{err: fmt.Errorf("failed to create Anthropic provider: %w", err)}
+		}
+
+		ctx := context.Background()
+
+		// Create language model with Claude Haiku 4.5
+		model, err := provider.LanguageModel(ctx, "claude-haiku-4-5")
+		if err != nil {
+			return askMsg{err: fmt.Errorf("failed to initialize Claude model: %w", err)}
+		}
+
+		// Create tools from registered Cobra commands
+		// Wrap the initialization functions to match the agent package's interface
+		initDBWrapper := func(dataDir string) (agent.DBInterface, func(), error) {
+			db, cleanup, err := cmd.InitDB(dataDir)
+			if err != nil {
+				return nil, nil, err
+			}
+			// Wrap the DBInterface to match agent.DBInterface
+			return &agentDBAdapter{db: db}, cleanup, nil
+		}
+
+		initAIScraperWrapper := func(db agent.DBInterface) (agent.AIScraperInterface, error) {
+			// Unwrap the db to get the original cmd.DBInterface
+			adapter := db.(*agentDBAdapter)
+			scraper, err := cmd.InitAIScraper(adapter.db)
+			if err != nil {
+				return nil, err
+			}
+			return &agentAIScraperAdapter{scraper: scraper}, nil
+		}
+
+		agentTools := agent.CreateToolsFromCommands(cmd.GetRootCmd(), dataDir, []string{"serve", "ask"}, initDBWrapper, initAIScraperWrapper)
+
+		// Create agent with command tools
+		fantasyAgent := fantasy.NewAgent(
+			model,
+			fantasy.WithSystemPrompt("You are a helpful assistant specializing in education and school-related topics. You have access to tools that can search schools, get school details, and scrape enhanced data from school websites. Use these tools when appropriate to provide accurate, data-backed answers."),
+			fantasy.WithTools(agentTools...),
+		)
+
+		// Generate the response
+		result, err := fantasyAgent.Generate(ctx, fantasy.AgentCall{Prompt: question})
+		if err != nil {
+			return askMsg{err: fmt.Errorf("failed to generate response: %w", err)}
+		}
+
+		return askMsg{response: result.Response.Content.Text(), err: nil}
+	}
+}
+
+// agentDBAdapter adapts cmd.DBInterface to agent.DBInterface
+type agentDBAdapter struct {
+	db cmd.DBInterface
+}
+
+func (a *agentDBAdapter) SearchSchools(query string, state string, limit int) ([]interface{}, error) {
+	schools, err := a.db.SearchSchools(query, state, limit)
+	if err != nil {
+		return nil, err
+	}
+	// Convert []SchoolData to []interface{}
+	result := make([]interface{}, len(schools))
+	for i, school := range schools {
+		result[i] = school
+	}
+	return result, nil
+}
+
+func (a *agentDBAdapter) GetSchoolByID(ncessch string) (interface{}, error) {
+	return a.db.GetSchoolByID(ncessch)
+}
+
+func (a *agentDBAdapter) Close() error {
+	return a.db.Close()
+}
+
+// agentAIScraperAdapter adapts cmd.AIScraperInterface to agent.AIScraperInterface
+type agentAIScraperAdapter struct {
+	scraper cmd.AIScraperInterface
+}
+
+func (a *agentAIScraperAdapter) ExtractSchoolDataWithWebSearch(school interface{}) (interface{}, error) {
+	// Convert interface{} back to *SchoolData
+	schoolData, ok := school.(*cmd.SchoolData)
+	if !ok {
+		return nil, fmt.Errorf("invalid school data type")
+	}
+	return a.scraper.ExtractSchoolDataWithWebSearch(schoolData)
+}
+
+func initialModel(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient, dataDir string) model {
 	ti := textinput.New()
 	ti.Placeholder = "Search schools by name, city, district, address, or zip..."
 	ti.Focus()
@@ -369,6 +483,7 @@ func initialModel(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient) m
 		db:            db,
 		aiScraper:     aiScraper,
 		naepClient:    naepClient,
+		dataDir:       dataDir,
 		currentView:   searchView,
 		searchInput:   ti,
 		saveInput:     si,
@@ -496,6 +611,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logger.Info("NAEP data fetched", "school_id", m.selectedItem.NCESSCH, "state", m.selectedItem.State, "state_scores", len(msg.data.StateScores), "district_scores", len(msg.data.DistrictScores))
 		}
 		return m, nil
+
+	case askMsg:
+		m.askingAI = false
+		if msg.err != nil {
+			m.err = fmt.Errorf("AI ask failed: %w", msg.err)
+			if logger != nil {
+				logger.Error("AI ask failed", "error", msg.err, "query", m.searchInput.Value())
+			}
+			return m, nil
+		}
+		m.aiResponse = msg.response
+		m.err = nil
+		if logger != nil {
+			logger.Info("AI ask completed", "query", m.searchInput.Value())
+		}
+		return m, nil
 	}
 
 	if m.currentView == searchView {
@@ -518,9 +649,18 @@ func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyEnter:
 		if m.searchInput.Focused() {
-			// Perform search
-			m.loading = true
-			return m, searchSchools(m.db, m.searchInput.Value(), m.stateFilter)
+			// Check if AI mode is enabled
+			if m.useAI {
+				// Use AI ask
+				m.askingAI = true
+				m.aiResponse = "" // Clear previous response
+				m.err = nil
+				return m, askQuestion(m.searchInput.Value(), m.dataDir)
+			} else {
+				// Perform search
+				m.loading = true
+				return m, searchSchools(m.db, m.searchInput.Value(), m.stateFilter)
+			}
 		} else {
 			// Select school from list
 			if item, ok := m.list.SelectedItem().(schoolItem); ok {
@@ -563,6 +703,22 @@ func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.searchInput.Value() != "" {
 			m.loading = true
 			return m, searchSchools(m.db, m.searchInput.Value(), m.stateFilter)
+		}
+		return m, nil
+
+	case tea.KeyCtrlT:
+		// Toggle AI mode
+		m.useAI = !m.useAI
+		// Clear previous results when switching modes
+		m.aiResponse = ""
+		m.schools = []School{}
+		m.list.SetItems([]list.Item{})
+		m.err = nil
+		// Update placeholder based on mode
+		if m.useAI {
+			m.searchInput.Placeholder = "Ask a question about schools..."
+		} else {
+			m.searchInput.Placeholder = "Search schools by name, city, district, address, or zip..."
 		}
 		return m, nil
 	}
@@ -708,17 +864,38 @@ func (m model) searchViewRender() string {
 	b.WriteString(inputStyle.Render(m.searchInput.View()))
 	b.WriteString("\n")
 
-	// State filter
-	stateText := "All States"
-	if m.stateFilter != "" {
-		stateText = m.stateFilter
+	// AI mode toggle indicator
+	toggleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("33"))
+	if m.useAI {
+		b.WriteString(toggleStyle.Render("🤖 AI Mode: ON (Ctrl+T to toggle)"))
+	} else {
+		b.WriteString(toggleStyle.Render("🔍 Search Mode: ON (Ctrl+T to toggle)"))
 	}
-	b.WriteString(fmt.Sprintf("State Filter: %s (Ctrl+S to cycle)", stateText))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	// State filter (only show in search mode)
+	if !m.useAI {
+		stateText := "All States"
+		if m.stateFilter != "" {
+			stateText = m.stateFilter
+		}
+		b.WriteString(fmt.Sprintf("State Filter: %s (Ctrl+S to cycle)", stateText))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	// Loading indicator
 	if m.loading {
 		b.WriteString("Loading...\n")
+	}
+
+	// AI loading indicator
+	if m.askingAI {
+		aiLoadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("226")).
+			Bold(true)
+		b.WriteString(aiLoadingStyle.Render("🤖 AI is thinking...\n"))
 	}
 
 	// Error display
@@ -727,8 +904,27 @@ func (m model) searchViewRender() string {
 		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v\n", m.err)))
 	}
 
+	// AI response display
+	if m.useAI && m.aiResponse != "" {
+		aiResponseStyle := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("33")).
+			Padding(1, 2).
+			MarginBottom(1)
+
+		responseTitle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("33")).
+			Render("🤖 AI Response:")
+
+		b.WriteString(responseTitle)
+		b.WriteString("\n\n")
+		b.WriteString(aiResponseStyle.Render(m.aiResponse))
+		b.WriteString("\n")
+	}
+
 	// Results summary stats
-	if len(m.schools) > 0 {
+	if !m.useAI && len(m.schools) > 0 {
 		// Calculate quick stats
 		totalEnrollment := int64(0)
 		totalTeachers := 0.0
@@ -772,7 +968,12 @@ func (m model) searchViewRender() string {
 		Foreground(lipgloss.Color("241")).
 		MarginTop(1)
 
-	help := "\nTab: Switch focus | Enter: Search/Select | Ctrl+S: Filter by state | Esc/Ctrl+C: Quit"
+	var help string
+	if m.useAI {
+		help = "\nEnter: Ask AI | Ctrl+T: Toggle mode | Esc/Ctrl+C: Quit"
+	} else {
+		help = "\nTab: Switch focus | Enter: Search/Select | Ctrl+S: Filter by state | Ctrl+T: Toggle AI mode | Esc/Ctrl+C: Quit"
+	}
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
@@ -1350,7 +1551,7 @@ func launchTUI(dataDir string) {
 	fmt.Println()
 
 	p := tea.NewProgram(
-		initialModel(db, aiScraper, naepClient),
+		initialModel(db, aiScraper, naepClient, dataDir),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

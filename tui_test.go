@@ -13,7 +13,7 @@ func TestInitialModel(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 
 	// Test initial state
 	if m.currentView != searchView {
@@ -46,7 +46,7 @@ func TestSearchViewKeyHandling(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.width = 80
 	m.height = 24
 
@@ -88,7 +88,7 @@ func TestSearchMessageHandling(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.width = 80
 	m.height = 24
 	m.loading = true
@@ -131,7 +131,7 @@ func TestSearchMessageError(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.loading = true
 
 	// Simulate failed search
@@ -157,7 +157,7 @@ func TestWindowSizeHandling(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 
 	msg := tea.WindowSizeMsg{
 		Width:  100,
@@ -185,7 +185,7 @@ func TestDetailViewTransition(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.width = 80
 	m.height = 24
 
@@ -228,7 +228,7 @@ func TestDetailViewBackToSearch(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.width = 80
 	m.height = 24
 	m.currentView = detailView
@@ -257,7 +257,7 @@ func TestSavePromptTransition(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.width = 80
 	m.height = 24
 	m.currentView = detailView
@@ -292,7 +292,7 @@ func TestSavePromptCancel(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.currentView = savePromptView
 	m.selectedItem = MockSchool("123456", "Test School", "Test District", "CA", "PK", "05")
 	m.saveInput.SetValue("test.json")
@@ -316,7 +316,7 @@ func TestSearchViewRender(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.width = 80
 	m.height = 24
 
@@ -341,7 +341,7 @@ func TestDetailViewRender(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.width = 80
 	m.height = 24
 	m.currentView = detailView
@@ -373,7 +373,7 @@ func TestDetailViewContent(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.width = 80
 	m.height = 24
 
@@ -417,7 +417,7 @@ func TestStateFilterCycling(t *testing.T) {
 	db, cleanup := SetupTestDB(t)
 	defer cleanup()
 
-	m := initialModel(db, nil, nil)
+	m := initialModel(db, nil, nil, "")
 	m.searchInput.SetValue("School") // Set a query so filter triggers search
 
 	initialState := m.stateFilter

@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"charm.land/fantasy"
-	"charm.land/fantasy/providers/anthropic"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -346,27 +345,6 @@ func searchSchools(db *DB, query, state string) tea.Cmd {
 
 func askQuestion(question, dataDir string) tea.Cmd {
 	return func() tea.Msg {
-		// Get API key from environment
-		apiKey := os.Getenv("ANTHROPIC_API_KEY")
-		if apiKey == "" {
-			return askMsg{err: fmt.Errorf("ANTHROPIC_API_KEY not set")}
-		}
-
-		// Create Fantasy provider for Anthropic
-		provider, err := anthropic.New(anthropic.WithAPIKey(apiKey))
-		if err != nil {
-			return askMsg{err: fmt.Errorf("failed to create Anthropic provider: %w", err)}
-		}
-
-		ctx := context.Background()
-
-		// Create language model with Claude Haiku 4.5
-		model, err := provider.LanguageModel(ctx, "claude-haiku-4-5")
-		if err != nil {
-			return askMsg{err: fmt.Errorf("failed to initialize Claude model: %w", err)}
-		}
-
-		// Create tools from registered Cobra commands
 		// Wrap the initialization functions to match the agent package's interface
 		initDBWrapper := func(dataDir string) (agent.DBInterface, func(), error) {
 			db, cleanup, err := cmd.InitDB(dataDir)
@@ -387,14 +365,19 @@ func askQuestion(question, dataDir string) tea.Cmd {
 			return &agentAIScraperAdapter{scraper: scraper}, nil
 		}
 
-		agentTools := agent.CreateToolsFromCommands(cmd.GetRootCmd(), dataDir, []string{"serve", "ask"}, initDBWrapper, initAIScraperWrapper)
-
-		// Create agent with command tools
-		fantasyAgent := fantasy.NewAgent(
-			model,
-			fantasy.WithSystemPrompt("You are a helpful assistant specializing in education and school-related topics. You have access to tools that can search schools, get school details, and scrape enhanced data from school websites. Use these tools when appropriate to provide accurate, data-backed answers."),
-			fantasy.WithTools(agentTools...),
+		// Create the agent using the factory with options
+		fantasyAgent, err := agent.NewAskAgent(
+			cmd.GetRootCmd(),
+			agent.WithAPIKeyFromEnv(),
+			agent.WithDataDir(dataDir),
+			agent.WithDBInitializer(initDBWrapper),
+			agent.WithAIScraperInitializer(initAIScraperWrapper),
 		)
+		if err != nil {
+			return askMsg{err: fmt.Errorf("failed to create agent: %w", err)}
+		}
+
+		ctx := context.Background()
 
 		// Generate the response
 		result, err := fantasyAgent.Generate(ctx, fantasy.AgentCall{Prompt: question})

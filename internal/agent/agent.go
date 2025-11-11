@@ -7,6 +7,7 @@ import (
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
+	"github.com/spf13/cobra"
 )
 
 const (
@@ -107,7 +108,7 @@ func WithAIScraperInitializer(initScraper InitAIScraperFunc) AgentOption {
 //
 // The rootCmd parameter should be a *cobra.Command from the cmd package.
 // It's defined as interface{} to avoid circular imports.
-func NewAskAgent(rootCmd interface{}, opts ...AgentOption) (*fantasy.Agent, error) {
+func NewAskAgent(rootCmd interface{}, opts ...AgentOption) (fantasy.Agent, error) {
 	// Initialize config with defaults
 	config := &AgentConfig{
 		model:        defaultModel,
@@ -147,9 +148,15 @@ func NewAskAgent(rootCmd interface{}, opts ...AgentOption) (*fantasy.Agent, erro
 		return nil, fmt.Errorf("failed to initialize Claude model: %w", err)
 	}
 
+	// Type assert rootCmd to *cobra.Command
+	cobraCmd, ok := rootCmd.(*cobra.Command)
+	if !ok {
+		return nil, fmt.Errorf("rootCmd must be a *cobra.Command")
+	}
+
 	// Create tools from registered commands
 	agentTools := CreateToolsFromCommands(
-		rootCmd,
+		cobraCmd,
 		config.dataDir,
 		config.exclusions,
 		config.initDB,

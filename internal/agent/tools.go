@@ -29,10 +29,23 @@ type GenericInput struct {
 	Args string `json:"args,omitempty" jsonschema:"description=Arguments for the command"`
 }
 
+type SchemaInput struct {
+	// No parameters needed for schema command
+}
+
+type QueryInput struct {
+	SQL string `json:"sql" jsonschema:"required,description=The SQL query to execute against the DuckDB database"`
+}
+
+type SummarizeInput struct {
+	QueryOrTable string `json:"query_or_table" jsonschema:"required,description=Table name or query to summarize (e.g., 'directory' or 'SELECT * FROM directory WHERE ST = 'CA'')"`
+}
+
 // DBInterface defines the database operations needed for tools
 type DBInterface interface {
 	SearchSchools(query string, state string, limit int) ([]interface{}, error)
 	GetSchoolByID(ncessch string) (interface{}, error)
+	ExecuteQuery(query string) ([]map[string]interface{}, error)
 	Close() error
 }
 
@@ -215,6 +228,153 @@ func createToolForCommand(
 
 				// Convert result to JSON
 				jsonBytes, err := json.MarshalIndent(enhancedData, "", "  ")
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode result as JSON: %v", err)), nil
+				}
+
+				return fantasy.NewTextResponse(string(jsonBytes)), nil
+			},
+		)
+
+	case "schema":
+		return fantasy.NewAgentTool(
+			cmdName,
+			description,
+			func(ctx context.Context, input SchemaInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				// Initialize database
+				db, cleanup, err := initDB(dataDir)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to initialize database: %v", err)), nil
+				}
+				defer cleanup()
+
+				// Get schema information for all tables
+				tables := []string{"directory", "teachers", "enrollment", "ai_scraper_cache", "naep_cache"}
+				type SchemaOutput struct {
+					TableName   string `json:"table_name"`
+					ColumnCount int    `json:"column_count"`
+					Columns     []struct {
+						Name     string `json:"name"`
+						Type     string `json:"type"`
+						Nullable string `json:"nullable"`
+					} `json:"columns"`
+				}
+				schemas := make([]SchemaOutput, 0, len(tables))
+
+				for _, tableName := range tables {
+					query := fmt.Sprintf("PRAGMA table_info('%s')", tableName)
+					rows, err := db.ExecuteQuery(query)
+					if err != nil {
+						// Skip tables that don't exist
+						continue
+					}
+
+					schema := SchemaOutput{
+						TableName: tableName,
+						Columns: make([]struct {
+							Name     string `json:"name"`
+							Type     string `json:"type"`
+							Nullable string `json:"nullable"`
+						}, 0),
+					}
+
+					for _, row := range rows {
+						name, _ := row["name"].(string)
+						colType, _ := row["type"].(string)
+						notnull, _ := row["notnull"]
+
+						nullable := "YES"
+						if fmt.Sprintf("%v", notnull) == "1" {
+							nullable = "NO"
+						}
+
+						col := struct {
+							Name     string `json:"name"`
+							Type     string `json:"type"`
+							Nullable string `json:"nullable"`
+						}{
+							Name:     name,
+							Type:     colType,
+							Nullable: nullable,
+						}
+						schema.Columns = append(schema.Columns, col)
+					}
+
+					schema.ColumnCount = len(schema.Columns)
+					schemas = append(schemas, schema)
+				}
+
+				// Convert result to JSON
+				jsonBytes, err := json.MarshalIndent(schemas, "", "  ")
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode result as JSON: %v", err)), nil
+				}
+
+				return fantasy.NewTextResponse(string(jsonBytes)), nil
+			},
+		)
+
+	case "query":
+		return fantasy.NewAgentTool(
+			cmdName,
+			description,
+			func(ctx context.Context, input QueryInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				// Validate input
+				if input.SQL == "" {
+					return fantasy.NewTextErrorResponse("sql parameter is required"), nil
+				}
+
+				// Initialize database
+				db, cleanup, err := initDB(dataDir)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to initialize database: %v", err)), nil
+				}
+				defer cleanup()
+
+				// Execute the query
+				rows, err := db.ExecuteQuery(input.SQL)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to execute query: %v", err)), nil
+				}
+
+				// Convert result to JSON
+				jsonBytes, err := json.MarshalIndent(rows, "", "  ")
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode result as JSON: %v", err)), nil
+				}
+
+				return fantasy.NewTextResponse(string(jsonBytes)), nil
+			},
+		)
+
+	case "summarize":
+		return fantasy.NewAgentTool(
+			cmdName,
+			description,
+			func(ctx context.Context, input SummarizeInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				// Validate input
+				if input.QueryOrTable == "" {
+					return fantasy.NewTextErrorResponse("query_or_table parameter is required"), nil
+				}
+
+				// Initialize database
+				db, cleanup, err := initDB(dataDir)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to initialize database: %v", err)), nil
+				}
+				defer cleanup()
+
+				// Build the SUMMARIZE query
+				summarizeQuery := fmt.Sprintf("SUMMARIZE %s", input.QueryOrTable)
+
+				// Execute the query
+				rows, err := db.ExecuteQuery(summarizeQuery)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to execute summarize query: %v", err)), nil
+				}
+
+				// Convert result to JSON
+				jsonBytes, err := json.MarshalIndent(rows, "", "  ")
 				if err != nil {
 					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode result as JSON: %v", err)), nil
 				}

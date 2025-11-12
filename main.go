@@ -1637,6 +1637,10 @@ func (a *dbAdapter) Close() error {
 	return a.db.Close()
 }
 
+func (a *dbAdapter) ExecuteQuery(query string) ([]map[string]interface{}, error) {
+	return a.db.ExecuteQuery(query)
+}
+
 // convertSchoolToCmd converts School to cmd.SchoolData
 func convertSchoolToCmd(s School) cmd.SchoolData {
 	data := cmd.SchoolData{

@@ -354,13 +354,11 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 			// Fallback to LIKE-based search when FTS is not available
 			searchPattern := "%" + query + "%"
 			args = append(args, searchPattern)
-			argIdx := 2
 
 			stateFilter := ""
 			if state != "" {
-				stateFilter = fmt.Sprintf("AND d.ST = $%d", argIdx)
+				stateFilter = "AND d.ST = $2"
 				args = append(args, state)
-				argIdx++
 			}
 
 			sqlQuery = fmt.Sprintf(`

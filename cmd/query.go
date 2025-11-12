@@ -55,6 +55,6 @@ Examples:
 
 func init() {
 	queryCmd.Flags().StringVarP(&queryString, "sql", "q", "", "SQL query to execute (required)")
-	queryCmd.MarkFlagRequired("sql")
+	_ = queryCmd.MarkFlagRequired("sql")
 	rootCmd.AddCommand(queryCmd)
 }

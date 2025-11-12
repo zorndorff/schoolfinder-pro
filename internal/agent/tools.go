@@ -281,7 +281,7 @@ func createToolForCommand(
 					for _, row := range rows {
 						name, _ := row["name"].(string)
 						colType, _ := row["type"].(string)
-						notnull, _ := row["notnull"]
+						notnull := row["notnull"]
 
 						nullable := "YES"
 						if fmt.Sprintf("%v", notnull) == "1" {

@@ -68,6 +68,6 @@ Examples:
 func init() {
 	summarizeCmd.Flags().StringVarP(&queryOrTable, "table", "t", "", "Table name or query to summarize (required)")
 	summarizeCmd.Flags().StringVarP(&queryOrTable, "query", "q", "", "Query to summarize (alias for --table)")
-	summarizeCmd.MarkFlagRequired("table")
+	_ = summarizeCmd.MarkFlagRequired("table")
 	rootCmd.AddCommand(summarizeCmd)
 }

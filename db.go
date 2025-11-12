@@ -37,6 +37,7 @@ type School struct {
 type DB struct {
 	conn    *sql.DB
 	dataDir string
+	hasFTS  bool // Whether FTS extension is available
 }
 
 func NewDB(dataDir string) (*DB, error) {
@@ -83,11 +84,16 @@ func NewDB(dataDir string) (*DB, error) {
 			// Try installing first if not available
 			_, err = d.conn.Exec("INSTALL fts; LOAD fts;")
 			if err != nil {
+				// FTS extension is optional - warn but don't fail
 				if logger != nil {
-					logger.Error("Failed to load FTS extension", "error", err, "db_path", dbPath)
+					logger.Warn("FTS extension not available for existing database", "error", err, "db_path", dbPath)
 				}
-				return nil, fmt.Errorf("failed to load FTS extension: %w", err)
+				d.hasFTS = false
+			} else {
+				d.hasFTS = true
 			}
+		} else {
+			d.hasFTS = true
 		}
 
 		// Ensure cache tables exist (for databases created before cache tables were added)
@@ -113,9 +119,16 @@ func (d *DB) initializeDatabase() error {
 	start := time.Now()
 	_, err := d.conn.Exec("INSTALL fts; LOAD fts;")
 	if err != nil {
-		return fmt.Errorf("failed to load FTS extension: %w", err)
+		// FTS extension is optional - warn but don't fail
+		fmt.Printf("   ⚠ FTS extension not available (search may be slower): %v\n", err)
+		if logger != nil {
+			logger.Warn("FTS extension not available", "error", err)
+		}
+		d.hasFTS = false
+	} else {
+		fmt.Printf("   ✓ FTS extension loaded (%v)\n", time.Since(start))
+		d.hasFTS = true
 	}
-	fmt.Printf("   ✓ FTS extension loaded (%v)\n", time.Since(start))
 
 	// Start transaction for faster bulk insert
 	tx, err := d.conn.Begin()
@@ -197,24 +210,32 @@ func (d *DB) initializeDatabase() error {
 	}
 
 	// Create FTS index (must be done outside transaction)
-	fmt.Println("   Creating full-text search index...")
-	start = time.Now()
-	_, err = d.conn.Exec(`
-		PRAGMA create_fts_index(
-			'directory',
-			'NCESSCH',
-			'SCH_NAME',
-			'LEA_NAME',
-			'MCITY',
-			'MSTREET1',
-			'MZIP',
-			overwrite=1
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create FTS index: %w", err)
+	// Only try if FTS extension is available
+	if d.hasFTS {
+		fmt.Println("   Creating full-text search index...")
+		start = time.Now()
+		_, err = d.conn.Exec(`
+			PRAGMA create_fts_index(
+				'directory',
+				'NCESSCH',
+				'SCH_NAME',
+				'LEA_NAME',
+				'MCITY',
+				'MSTREET1',
+				'MZIP',
+				overwrite=1
+			)
+		`)
+		if err != nil {
+			// FTS index creation failed - warn but don't fail initialization
+			fmt.Printf("   ⚠ FTS index creation failed (search will use fallback): %v\n", err)
+			d.hasFTS = false
+		} else {
+			fmt.Printf("   ✓ FTS index created (%v)\n", time.Since(start))
+		}
+	} else {
+		fmt.Println("   ⚠ Skipping FTS index creation (extension not available)")
 	}
-	fmt.Printf("   ✓ FTS index created (%v)\n", time.Since(start))
 
 	// Create cache tables
 	fmt.Println("   Creating cache tables...")
@@ -287,47 +308,97 @@ func (d *DB) SearchSchools(query string, state string, limit int) ([]School, err
 	var args []interface{}
 
 	if query != "" {
-		// Use full-text search with relevance ranking
-		args = append(args, query)
+		if d.hasFTS {
+			// Use full-text search with relevance ranking
+			args = append(args, query)
 
-		stateFilter := ""
-		if state != "" {
-			argIdx := 2
-			stateFilter = fmt.Sprintf("AND d.ST = $%d", argIdx)
-			args = append(args, state)
+			stateFilter := ""
+			if state != "" {
+				argIdx := 2
+				stateFilter = fmt.Sprintf("AND d.ST = $%d", argIdx)
+				args = append(args, state)
+			}
+
+			sqlQuery = fmt.Sprintf(`
+				SELECT
+					d.NCESSCH,
+					d.SCH_NAME,
+					d.ST,
+					d.STATENAME,
+					COALESCE(d.MCITY, ''),
+					COALESCE(d.LEA_NAME, ''),
+					d.LEAID,
+					d.SCHOOL_YEAR,
+					t.TEACHERS,
+					d.LEVEL,
+					d.PHONE,
+					d.WEBSITE,
+					d.MZIP,
+					d.MSTREET1,
+					d.MSTREET2,
+					d.MSTREET3,
+					d.SCH_TYPE_TEXT,
+					d.GSLO,
+					d.GSHI,
+					d.CHARTER_TEXT,
+					e.STUDENT_COUNT
+				FROM directory d
+				LEFT JOIN teachers t ON d.NCESSCH = t.NCESSCH
+				LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total'
+				WHERE fts_main_directory.match_bm25(d.NCESSCH, $1) IS NOT NULL
+				%s
+				ORDER BY fts_main_directory.match_bm25(d.NCESSCH, $1) DESC
+				LIMIT %d
+			`, stateFilter, limit)
+		} else {
+			// Fallback to LIKE-based search when FTS is not available
+			searchPattern := "%" + query + "%"
+			args = append(args, searchPattern)
+
+			stateFilter := ""
+			if state != "" {
+				stateFilter = "AND d.ST = $2"
+				args = append(args, state)
+			}
+
+			sqlQuery = fmt.Sprintf(`
+				SELECT
+					d.NCESSCH,
+					d.SCH_NAME,
+					d.ST,
+					d.STATENAME,
+					COALESCE(d.MCITY, ''),
+					COALESCE(d.LEA_NAME, ''),
+					d.LEAID,
+					d.SCHOOL_YEAR,
+					t.TEACHERS,
+					d.LEVEL,
+					d.PHONE,
+					d.WEBSITE,
+					d.MZIP,
+					d.MSTREET1,
+					d.MSTREET2,
+					d.MSTREET3,
+					d.SCH_TYPE_TEXT,
+					d.GSLO,
+					d.GSHI,
+					d.CHARTER_TEXT,
+					e.STUDENT_COUNT
+				FROM directory d
+				LEFT JOIN teachers t ON d.NCESSCH = t.NCESSCH
+				LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total'
+				WHERE (
+					LOWER(d.SCH_NAME) LIKE LOWER($1)
+					OR LOWER(d.MCITY) LIKE LOWER($1)
+					OR LOWER(d.LEA_NAME) LIKE LOWER($1)
+					OR LOWER(d.MSTREET1) LIKE LOWER($1)
+					OR d.MZIP LIKE $1
+				)
+				%s
+				ORDER BY d.SCH_NAME
+				LIMIT %d
+			`, stateFilter, limit)
 		}
-
-		sqlQuery = fmt.Sprintf(`
-			SELECT
-				d.NCESSCH,
-				d.SCH_NAME,
-				d.ST,
-				d.STATENAME,
-				COALESCE(d.MCITY, ''),
-				COALESCE(d.LEA_NAME, ''),
-				d.LEAID,
-				d.SCHOOL_YEAR,
-				t.TEACHERS,
-				d.LEVEL,
-				d.PHONE,
-				d.WEBSITE,
-				d.MZIP,
-				d.MSTREET1,
-				d.MSTREET2,
-				d.MSTREET3,
-				d.SCH_TYPE_TEXT,
-				d.GSLO,
-				d.GSHI,
-				d.CHARTER_TEXT,
-				e.STUDENT_COUNT
-			FROM directory d
-			LEFT JOIN teachers t ON d.NCESSCH = t.NCESSCH
-			LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total'
-			WHERE fts_main_directory.match_bm25(d.NCESSCH, $1) IS NOT NULL
-			%s
-			ORDER BY fts_main_directory.match_bm25(d.NCESSCH, $1) DESC
-			LIMIT %d
-		`, stateFilter, limit)
 	} else {
 		// No search query, just filter by state if provided
 		whereClause := "WHERE 1=1"

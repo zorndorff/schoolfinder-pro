@@ -374,3 +374,228 @@ func (h *WebHandler) enrichScore(score NAEPScore, data *NAEPData, useDistrict bo
 		AdvancedPct:   advanced,
 	}
 }
+
+// AgentPage renders the AI agent page
+func (h *WebHandler) AgentPage(w http.ResponseWriter, r *http.Request) {
+	data := map[string]interface{}{
+		"Title":       "AI Agent",
+		"Query":       r.URL.Query().Get("q"),
+		"AIAvailable": h.AIScraper != nil,
+	}
+
+	if err := h.templates.ExecuteTemplate(w, "agent.html", data); err != nil {
+		log.Printf("Template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// AgentQueryResponse holds the response data for agent queries
+type AgentQueryResponse struct {
+	Query        string
+	ResponseText string
+	Schools      []*School
+	TotalCount   int
+	Page         int
+	PageSize     int
+	TotalPages   int
+	StartIndex   int
+	EndIndex     int
+	PrevPage     int
+	NextPage     int
+	SchoolIDs    string
+	Error        string
+}
+
+// AgentQuery handles AI agent queries
+func (h *WebHandler) AgentQuery(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	query := r.FormValue("query")
+	if query == "" {
+		http.Error(w, "Query required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if AI scraper is available
+	if h.AIScraper == nil {
+		data := AgentQueryResponse{
+			Query: query,
+			Error: "AI Agent requires ANTHROPIC_API_KEY to be set",
+		}
+		if err := h.templates.ExecuteTemplate(w, "agent_response.html", data); err != nil {
+			log.Printf("Template error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Use Claude to interpret the query and generate a SQL search
+	response, schoolIDs, err := h.queryWithAI(r.Context(), query)
+	if err != nil {
+		log.Printf("AI query error: %v", err)
+		data := AgentQueryResponse{
+			Query: query,
+			Error: fmt.Sprintf("Failed to process query: %v", err),
+		}
+		if err := h.templates.ExecuteTemplate(w, "agent_response.html", data); err != nil {
+			log.Printf("Template error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Fetch the schools by IDs
+	var schools []*School
+	if len(schoolIDs) > 0 {
+		schools, err = h.DB.GetSchoolsByIDs(schoolIDs)
+		if err != nil {
+			log.Printf("Database error fetching schools: %v", err)
+			data := AgentQueryResponse{
+				Query:        query,
+				ResponseText: response,
+				Error:        "Failed to fetch school details",
+			}
+			if err := h.templates.ExecuteTemplate(w, "agent_response.html", data); err != nil {
+				log.Printf("Template error: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
+			return
+		}
+	}
+
+	// Paginate results
+	pageSize := 20
+	totalCount := len(schools)
+	page := 1
+
+	// Calculate pagination
+	totalPages := (totalCount + pageSize - 1) / pageSize
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	startIdx := 0
+	endIdx := totalCount
+	if totalCount > pageSize {
+		endIdx = pageSize
+	}
+
+	paginatedSchools := schools[startIdx:endIdx]
+
+	// Convert school IDs to comma-separated string for pagination
+	schoolIDsStr := strings.Join(schoolIDs, ",")
+
+	data := AgentQueryResponse{
+		Query:        query,
+		ResponseText: response,
+		Schools:      paginatedSchools,
+		TotalCount:   totalCount,
+		Page:         page,
+		PageSize:     pageSize,
+		TotalPages:   totalPages,
+		StartIndex:   startIdx + 1,
+		EndIndex:     endIdx,
+		PrevPage:     page - 1,
+		NextPage:     page + 1,
+		SchoolIDs:    schoolIDsStr,
+	}
+
+	if err := h.templates.ExecuteTemplate(w, "agent_response.html", data); err != nil {
+		log.Printf("Template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// AgentPaginate handles pagination for agent query results
+func (h *WebHandler) AgentPaginate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	query := r.FormValue("query")
+	pageStr := r.FormValue("page")
+	schoolIDsStr := r.FormValue("school_ids")
+
+	page := 1
+	if pageStr != "" {
+		if p, err := fmt.Sscanf(pageStr, "%d", &page); err != nil || p != 1 {
+			page = 1
+		}
+	}
+
+	// Parse school IDs
+	var schoolIDs []string
+	if schoolIDsStr != "" {
+		schoolIDs = strings.Split(schoolIDsStr, ",")
+	}
+
+	// Fetch schools
+	schools, err := h.DB.GetSchoolsByIDs(schoolIDs)
+	if err != nil {
+		log.Printf("Database error: %v", err)
+		data := AgentQueryResponse{
+			Query: query,
+			Error: "Failed to fetch schools",
+		}
+		if err := h.templates.ExecuteTemplate(w, "agent_response.html", data); err != nil {
+			log.Printf("Template error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Paginate
+	pageSize := 20
+	totalCount := len(schools)
+	totalPages := (totalCount + pageSize - 1) / pageSize
+
+	if page < 1 {
+		page = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	startIdx := (page - 1) * pageSize
+	endIdx := startIdx + pageSize
+	if endIdx > totalCount {
+		endIdx = totalCount
+	}
+
+	paginatedSchools := schools[startIdx:endIdx]
+
+	data := AgentQueryResponse{
+		Query:      query,
+		Schools:    paginatedSchools,
+		TotalCount: totalCount,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+		StartIndex: startIdx + 1,
+		EndIndex:   endIdx,
+		PrevPage:   page - 1,
+		NextPage:   page + 1,
+		SchoolIDs:  schoolIDsStr,
+	}
+
+	if err := h.templates.ExecuteTemplate(w, "agent_response.html", data); err != nil {
+		log.Printf("Template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// queryWithAI uses Claude to interpret a natural language query and search the database
+func (h *WebHandler) queryWithAI(ctx context.Context, query string) (string, []string, error) {
+	// This is a placeholder implementation
+	// In a real implementation, you would:
+	// 1. Use Claude to understand the query
+	// 2. Generate appropriate database queries
+	// 3. Execute the queries
+	// 4. Format the response
+
+	return h.AIScraper.QuerySchoolDatabase(ctx, h.DB, query)
+}

@@ -625,6 +625,96 @@ func (d *DB) GetSchoolByID(ncessch string) (*School, error) {
 	return &s, nil
 }
 
+// GetSchoolsByIDs retrieves multiple schools by their NCES IDs
+func (d *DB) GetSchoolsByIDs(ncesschList []string) ([]*School, error) {
+	if len(ncesschList) == 0 {
+		return []*School{}, nil
+	}
+
+	// Build a parameterized query with placeholders
+	sqlQuery := `
+		SELECT
+			d.NCESSCH,
+			d.SCH_NAME,
+			d.ST,
+			d.STATENAME,
+			COALESCE(d.MCITY, ''),
+			COALESCE(d.LEA_NAME, ''),
+			d.LEAID,
+			d.SCHOOL_YEAR,
+			t.TEACHERS,
+			d.LEVEL,
+			d.PHONE,
+			d.WEBSITE,
+			d.MZIP,
+			d.MSTREET1,
+			d.MSTREET2,
+			d.MSTREET3,
+			d.SCH_TYPE_TEXT,
+			d.GSLO,
+			d.GSHI,
+			d.CHARTER_TEXT,
+			e.STUDENT_COUNT
+		FROM directory d
+		LEFT JOIN teachers t ON d.NCESSCH = t.NCESSCH
+		LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total'
+		WHERE d.NCESSCH = ANY($1)
+	`
+
+	rows, err := d.conn.Query(sqlQuery, ncesschList)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to get schools by IDs", "error", err, "count", len(ncesschList))
+		}
+		return nil, fmt.Errorf("failed to query schools: %w", err)
+	}
+	defer rows.Close()
+
+	schools := make([]*School, 0, len(ncesschList))
+	for rows.Next() {
+		var s School
+		err := rows.Scan(
+			&s.NCESSCH,
+			&s.Name,
+			&s.State,
+			&s.StateName,
+			&s.City,
+			&s.District,
+			&s.DistrictID,
+			&s.SchoolYear,
+			&s.Teachers,
+			&s.Level,
+			&s.Phone,
+			&s.Website,
+			&s.Zip,
+			&s.Street1,
+			&s.Street2,
+			&s.Street3,
+			&s.SchoolType,
+			&s.GradeLow,
+			&s.GradeHigh,
+			&s.CharterText,
+			&s.Enrollment,
+		)
+		if err != nil {
+			if logger != nil {
+				logger.Error("Failed to scan school row", "error", err)
+			}
+			return nil, fmt.Errorf("failed to scan school: %w", err)
+		}
+		schools = append(schools, &s)
+	}
+
+	if err := rows.Err(); err != nil {
+		if logger != nil {
+			logger.Error("Error iterating school rows", "error", err)
+		}
+		return nil, fmt.Errorf("error iterating results: %w", err)
+	}
+
+	return schools, nil
+}
+
 func (d *DB) GetStates() ([]string, error) {
 	sqlQuery := `
 		SELECT DISTINCT ST

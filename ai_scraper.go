@@ -533,3 +533,251 @@ func FormatEnhancedData(data *EnhancedSchoolData) string {
 
 	return b.String()
 }
+
+// QuerySchoolDatabase uses Claude to interpret a natural language query and analyze the database
+func (s *AIScraperService) QuerySchoolDatabase(ctx context.Context, db *DB, query string) (string, []string, error) {
+	// Build the prompt for Claude
+	prompt := fmt.Sprintf(`You are an AI data analyst helping users explore and analyze a database of 102,274 schools from the NCES Common Core of Data (CCD).
+
+**Database Schema:**
+
+Tables:
+1. **directory** - Main school information (102K rows)
+   - NCESSCH (Primary Key), SCH_NAME, ST (state code), STATENAME, MCITY (city)
+   - LEA_NAME (district), LEAID, SCH_TYPE_TEXT, LEVEL
+   - GSLO, GSHI (grade range), CHARTER_TEXT, PHONE, WEBSITE
+   - MSTREET1, MZIP, SCHOOL_YEAR
+
+2. **enrollment** - Student counts (11M rows)
+   - NCESSCH (FK), STUDENT_COUNT
+   - TOTAL_INDICATOR (use = 'Education Unit Total' for totals)
+
+3. **teachers** - Teacher FTE counts (100K rows)
+   - NCESSCH (FK), TEACHERS (float)
+
+**User Query:** "%s"
+
+**Task:** Analyze the query type and generate appropriate SQL.
+
+**Query Types:**
+1. **search** - Find specific schools → return NCESSCH column
+2. **analysis** - Statistics/aggregations → return analysis columns
+
+**Response Format (JSON only):**
+
+For SEARCH (returns school list):
+{
+  "query_type": "search",
+  "explanation": "What you're searching for",
+  "sql_query": "SELECT d.NCESSCH FROM directory d LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total' LEFT JOIN teachers t ON d.NCESSCH = t.NCESSCH WHERE [conditions] LIMIT 200"
+}
+
+For ANALYSIS (returns aggregated data):
+{
+  "query_type": "analysis",
+  "explanation": "What analysis you're performing",
+  "sql_query": "SELECT [columns], COUNT(*), AVG() FROM directory d [JOINS] WHERE [conditions] GROUP BY [columns] ORDER BY [columns]"
+}
+
+**SQL Guidelines:**
+- JOIN on NCESSCH
+- For enrollment: LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total'
+- Student-teacher ratio: CAST(e.STUDENT_COUNT AS FLOAT) / t.TEACHERS
+- Use ST (not STATENAME) for state filtering
+- LIMIT 200 for searches
+- Use proper aggregation functions (COUNT, AVG, SUM, MIN, MAX)
+
+**Examples:**
+
+"Find charter high schools in California"
+→ {"query_type": "search", "explanation": "Searching for charter high schools in CA", "sql_query": "SELECT d.NCESSCH FROM directory d WHERE d.ST = 'CA' AND d.LEVEL = 'High' AND d.CHARTER_TEXT LIKE '%%Yes%%' LIMIT 200"}
+
+"Average enrollment by state"
+→ {"query_type": "analysis", "explanation": "Computing average enrollment grouped by state", "sql_query": "SELECT d.ST, d.STATENAME, AVG(e.STUDENT_COUNT) as avg_enrollment, COUNT(DISTINCT d.NCESSCH) as school_count FROM directory d LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total' GROUP BY d.ST, d.STATENAME ORDER BY avg_enrollment DESC"}
+
+"Top 10 schools by student-teacher ratio"
+→ {"query_type": "search", "explanation": "Finding schools with best student-teacher ratios", "sql_query": "SELECT d.NCESSCH FROM directory d INNER JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total' INNER JOIN teachers t ON d.NCESSCH = t.NCESSCH WHERE t.TEACHERS > 0 ORDER BY CAST(e.STUDENT_COUNT AS FLOAT) / t.TEACHERS LIMIT 10"}
+
+Return ONLY JSON, no other text.`, query)
+
+	// Call Claude API
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.ModelClaudeHaiku4_5_20251001,
+		MaxTokens: 4000,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
+		},
+	}
+
+	message, err := s.client.Messages.New(ctx, params)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Claude API call failed for database query", "error", err, "query", query)
+		}
+		return "", nil, fmt.Errorf("Claude API error: %w", err)
+	}
+
+	// Extract response
+	if len(message.Content) == 0 {
+		return "", nil, fmt.Errorf("empty response from Claude")
+	}
+
+	responseText := ""
+	for _, block := range message.Content {
+		if textBlock, ok := block.AsAny().(anthropic.TextBlock); ok {
+			responseText += textBlock.Text
+		}
+	}
+
+	if responseText == "" {
+		return "", nil, fmt.Errorf("no text response from Claude")
+	}
+
+	// Parse JSON response
+	var result struct {
+		QueryType   string `json:"query_type"`   // "search" or "analysis"
+		Explanation string `json:"explanation"`
+		SQLQuery    string `json:"sql_query"`    // Full SQL query
+		Analysis    string `json:"analysis"`     // Additional analysis text (optional)
+	}
+
+	// Try to extract JSON from response (it might be wrapped in markdown)
+	jsonStr := responseText
+	if strings.Contains(responseText, "```json") {
+		start := strings.Index(responseText, "```json") + 7
+		end := strings.Index(responseText[start:], "```")
+		if end > 0 {
+			jsonStr = responseText[start : start+end]
+		}
+	} else if strings.Contains(responseText, "```") {
+		start := strings.Index(responseText, "```") + 3
+		end := strings.Index(responseText[start:], "```")
+		if end > 0 {
+			jsonStr = responseText[start : start+end]
+		}
+	}
+
+	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonStr)), &result); err != nil {
+		if logger != nil {
+			logger.Error("Failed to parse Claude response as JSON", "error", err, "response", responseText)
+		}
+		// Fallback: return the raw response as analysis
+		return responseText, []string{}, nil
+	}
+
+	// Execute the SQL query
+	var schoolIDs []string
+	fullResponse := result.Explanation
+
+	if result.SQLQuery == "" {
+		if logger != nil {
+			logger.Warn("No SQL query generated by AI", "query", query)
+		}
+		return result.Explanation, []string{}, nil
+	}
+
+	// Log the generated SQL for debugging
+	if logger != nil {
+		logger.Info("Executing AI-generated SQL", "query_type", result.QueryType, "sql", result.SQLQuery)
+	}
+
+	// Execute the SQL query
+	rows, err := db.conn.Query(result.SQLQuery)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to execute AI-generated SQL query", "error", err, "sql", result.SQLQuery)
+		}
+		return fmt.Sprintf("%s\n\nError executing query: %v", result.Explanation, err), []string{}, nil
+	}
+	defer rows.Close()
+
+	// Handle different query types
+	if result.QueryType == "search" {
+		// For search queries, extract NCESSCH IDs
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				continue
+			}
+			schoolIDs = append(schoolIDs, id)
+		}
+
+		fullResponse = fmt.Sprintf("%s\n\nFound %d schools.", result.Explanation, len(schoolIDs))
+
+	} else if result.QueryType == "analysis" {
+		// For analysis queries, format the results as a table/text
+		columns, err := rows.Columns()
+		if err != nil {
+			return fmt.Sprintf("%s\n\nError reading results.", result.Explanation), []string{}, nil
+		}
+
+		// Build result table
+		var analysisResults strings.Builder
+		analysisResults.WriteString("\n\n**Results:**\n\n")
+
+		// Read all rows
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+
+		rowCount := 0
+		for rows.Next() {
+			if err := rows.Scan(valuePtrs...); err != nil {
+				continue
+			}
+
+			if rowCount == 0 {
+				// Header
+				analysisResults.WriteString("| ")
+				for _, col := range columns {
+					analysisResults.WriteString(fmt.Sprintf("%s | ", col))
+				}
+				analysisResults.WriteString("\n|")
+				for range columns {
+					analysisResults.WriteString("---|")
+				}
+				analysisResults.WriteString("\n")
+			}
+
+			// Data row
+			analysisResults.WriteString("| ")
+			for _, val := range values {
+				if val == nil {
+					analysisResults.WriteString("NULL | ")
+				} else {
+					// Format based on type
+					switch v := val.(type) {
+					case float64:
+						analysisResults.WriteString(fmt.Sprintf("%.2f | ", v))
+					case int64:
+						analysisResults.WriteString(fmt.Sprintf("%d | ", v))
+					default:
+						analysisResults.WriteString(fmt.Sprintf("%v | ", v))
+					}
+				}
+			}
+			analysisResults.WriteString("\n")
+
+			rowCount++
+			if rowCount >= 50 { // Limit to 50 rows for display
+				break
+			}
+		}
+
+		if rowCount == 0 {
+			analysisResults.WriteString("No results found.\n")
+		} else if rowCount == 50 {
+			analysisResults.WriteString("\n*(Showing first 50 results)*\n")
+		}
+
+		fullResponse = result.Explanation + analysisResults.String()
+	}
+
+	if logger != nil {
+		logger.Info("Successfully processed AI database query", "query", query, "query_type", result.QueryType, "results", len(schoolIDs))
+	}
+
+	return fullResponse, schoolIDs, nil
+}

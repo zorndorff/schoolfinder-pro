@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -396,19 +397,22 @@ func (h *WebHandler) AgentPage(w http.ResponseWriter, r *http.Request) {
 
 // AgentQueryResponse holds the response data for agent queries
 type AgentQueryResponse struct {
-	Query        string
-	ResponseText string
-	Schools      []*School
-	TotalCount   int
-	Page         int
-	PageSize     int
-	TotalPages   int
-	StartIndex   int
-	EndIndex     int
-	PrevPage     int
-	NextPage     int
-	SchoolIDs    string
-	Error        string
+	Query         string
+	ResponseText  string // AI's text summary/answer
+	SQLQuery      string // The SQL query executed
+	TableData     []map[string]interface{} // Raw query results as table
+	TableColumns  []string // Column names for table display
+	Schools       []*School
+	TotalCount    int
+	Page          int
+	PageSize      int
+	TotalPages    int
+	StartIndex    int
+	EndIndex      int
+	PrevPage      int
+	NextPage      int
+	SchoolIDs     string
+	Error         string
 }
 
 // AgentQuery handles AI agent queries
@@ -438,7 +442,7 @@ func (h *WebHandler) AgentQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use Claude to interpret the query and generate a SQL search
-	response, schoolIDs, err := h.queryWithAI(r.Context(), query)
+	result, err := h.queryWithAI(r.Context(), query)
 	if err != nil {
 		log.Printf("AI query error: %v", err)
 		data := AgentQueryResponse{
@@ -452,15 +456,18 @@ func (h *WebHandler) AgentQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch the schools by IDs
+	// Fetch the schools by IDs (if the query returned school IDs)
 	var schools []*School
-	if len(schoolIDs) > 0 {
-		schools, err = h.DB.GetSchoolsByIDs(schoolIDs)
+	if len(result.SchoolIDs) > 0 {
+		schools, err = h.DB.GetSchoolsByIDs(result.SchoolIDs)
 		if err != nil {
 			log.Printf("Database error fetching schools: %v", err)
 			data := AgentQueryResponse{
 				Query:        query,
-				ResponseText: response,
+				ResponseText: result.ResponseText,
+				SQLQuery:     result.SQLQuery,
+				TableData:    result.TableData,
+				TableColumns: result.TableColumns,
 				Error:        "Failed to fetch school details",
 			}
 			if err := h.templates.ExecuteTemplate(w, "agent_response.html", data); err != nil {
@@ -491,11 +498,14 @@ func (h *WebHandler) AgentQuery(w http.ResponseWriter, r *http.Request) {
 	paginatedSchools := schools[startIdx:endIdx]
 
 	// Convert school IDs to comma-separated string for pagination
-	schoolIDsStr := strings.Join(schoolIDs, ",")
+	schoolIDsStr := strings.Join(result.SchoolIDs, ",")
 
 	data := AgentQueryResponse{
 		Query:        query,
-		ResponseText: response,
+		ResponseText: result.ResponseText,
+		SQLQuery:     result.SQLQuery,
+		TableData:    result.TableData,
+		TableColumns: result.TableColumns,
 		Schools:      paginatedSchools,
 		TotalCount:   totalCount,
 		Page:         page,
@@ -595,33 +605,33 @@ func (h *WebHandler) AgentPaginate(w http.ResponseWriter, r *http.Request) {
 
 // queryWithAI uses Fantasy agent to interpret natural language queries and execute SQL
 // The agent has built-in retry logic and will self-correct failed SQL queries
-func (h *WebHandler) queryWithAI(ctx context.Context, query string) (string, []string, error) {
+func (h *WebHandler) queryWithAI(ctx context.Context, query string) (*AIQueryResult, error) {
 	// Get API key from environment
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		return "", nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
+		return nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
 	}
 
 	// Create Anthropic provider for Fantasy
 	provider, err := anthropic.New(anthropic.WithAPIKey(apiKey))
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to create provider: %w", err)
+		return nil, fmt.Errorf("failed to create provider: %w", err)
 	}
 
 	// Create language model (use Haiku 4.5 for speed)
 	model, err := provider.LanguageModel(ctx, "claude-haiku-4-5")
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to create model: %w", err)
+		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
 
 	// Define system prompt for data exploration
 	systemPrompt := `You are a data analyst helping users explore a school database with 102,274 schools from the NCES Common Core of Data (CCD).
 
 **Your Task:**
-Answer the user's question by querying the database using the 'query' tool.
+Answer the user's question by querying the database using the 'query' tool. The tool will return a SUMMARY of the query results. Use this summary to provide a clear, natural language answer to the user's question.
 
 **Available Tools:**
-- 'query': Execute SQL queries against the DuckDB database
+- 'query': Execute SQL queries against the DuckDB database (returns a summary of results)
 - 'schema': Get database schema information
 
 **Database Schema:**
@@ -630,11 +640,11 @@ Answer the user's question by querying the database using the 'query' tool.
 - **teachers**: Teacher FTE counts (NCESSCH, TEACHERS)
 
 **Query Strategy:**
-1. For SEARCH queries (finding specific schools): Return SQL that selects NCESSCH IDs
-   Example: "SELECT d.NCESSCH FROM directory d WHERE d.ST = 'CA' AND d.LEVEL = 'High' LIMIT 200"
+1. For SEARCH queries (finding specific schools): Return SQL that selects NCESSCH IDs and relevant school info
+   Example: "SELECT d.NCESSCH, d.SCH_NAME, d.MCITY, d.ST FROM directory d WHERE d.ST = 'CA' AND d.LEVEL = 'High' LIMIT 200"
 
 2. For ANALYSIS queries (statistics/aggregations): Return SQL with aggregated results
-   Example: "SELECT d.ST, AVG(e.STUDENT_COUNT) as avg_enrollment FROM directory d LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH WHERE e.TOTAL_INDICATOR = 'Education Unit Total' GROUP BY d.ST"
+   Example: "SELECT d.ST, AVG(e.STUDENT_COUNT) as avg_enrollment FROM directory d LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH WHERE e.TOTAL_INDICATOR = 'Education Unit Total' GROUP BY d.ST ORDER BY avg_enrollment DESC"
 
 **Important SQL Guidelines:**
 - JOIN on NCESSCH
@@ -652,14 +662,21 @@ The query tool will return an error. Analyze the error, correct your SQL, and tr
 
 **Response Format:**
 1. Execute the query using the 'query' tool
-2. Summarize the results in natural language
-3. If it's a search query, list the school IDs found
-4. If it's an analysis, present the aggregated data clearly`
+2. Analyze the summary results returned by the tool
+3. Provide a clear, natural language answer based on the summary
+4. If it's a search query, mention how many schools were found
+5. If it's an analysis, present key insights and aggregated data clearly`
+
+	// Variables to capture SQL and full results (outside agent context)
+	var capturedSQL string
+	var capturedResults []map[string]interface{}
+	var capturedColumns []string
 
 	// Create query tool for SQL execution
+	// This tool returns only a SUMMARY to the agent, but captures full results for display
 	queryTool := fantasy.NewAgentTool(
 		"query",
-		"Execute a SQL query against the DuckDB database and return results as JSON",
+		"Execute a SQL query against the DuckDB database. Returns a summary of results to avoid context limits.",
 		func(ctx context.Context, input agent.QueryInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			if input.SQL == "" {
 				return fantasy.NewTextErrorResponse("sql parameter is required"), nil
@@ -672,13 +689,22 @@ The query tool will return an error. Analyze the error, correct your SQL, and tr
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("SQL error: %v", err)), nil
 			}
 
-			// Convert to JSON
-			jsonBytes, err := json.MarshalIndent(rows, "", "  ")
-			if err != nil {
-				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode results: %v", err)), nil
+			// Capture SQL and full results for later display
+			capturedSQL = input.SQL
+			capturedResults = rows
+
+			// Extract column names from first row
+			if len(rows) > 0 {
+				for col := range rows[0] {
+					capturedColumns = append(capturedColumns, col)
+				}
+				sort.Strings(capturedColumns)
 			}
 
-			return fantasy.NewTextResponse(string(jsonBytes)), nil
+			// Create summary for agent context (first 10 rows only)
+			summary := summarizeQueryResults(rows, 10)
+
+			return fantasy.NewTextResponse(summary), nil
 		},
 	)
 
@@ -736,35 +762,86 @@ The query tool will return an error. Analyze the error, correct your SQL, and tr
 	// Generate response using the agent
 	result, err := fantasyAgent.Generate(ctx, fantasy.AgentCall{Prompt: query})
 	if err != nil {
-		return "", nil, fmt.Errorf("agent generation failed: %w", err)
+		return nil, fmt.Errorf("agent generation failed: %w", err)
 	}
 
 	// Extract response text
 	responseText := result.Response.Content.Text()
 
-	// Parse school IDs from the response if it's a search query
-	// Look for NCESSCH values in the response
+	// Parse school IDs from the captured results (if NCESSCH column exists)
 	var schoolIDs []string
-
-	// Try to find JSON arrays in the response that might contain school IDs
-	if strings.Contains(responseText, "NCESSCH") {
-		// Extract school IDs from JSON-like patterns
-		lines := strings.Split(responseText, "\n")
-		for _, line := range lines {
-			// Look for NCESSCH patterns like: "NCESSCH": "123456789012"
-			if strings.Contains(line, `"NCESSCH"`) || strings.Contains(line, `"ncessch"`) {
-				// Extract the ID value
-				parts := strings.Split(line, ":")
-				if len(parts) >= 2 {
-					idPart := strings.TrimSpace(parts[1])
-					idPart = strings.Trim(idPart, `",`)
-					if len(idPart) == 12 { // NCESSCH IDs are 12 digits
-						schoolIDs = append(schoolIDs, idPart)
-					}
-				}
+	for _, row := range capturedResults {
+		if ncessch, ok := row["NCESSCH"]; ok {
+			if ncesschStr, ok := ncessch.(string); ok && len(ncesschStr) == 12 {
+				schoolIDs = append(schoolIDs, ncesschStr)
 			}
 		}
 	}
 
-	return responseText, schoolIDs, nil
+	// Return the complete result
+	return &AIQueryResult{
+		ResponseText: responseText,
+		SQLQuery:     capturedSQL,
+		TableData:    capturedResults,
+		TableColumns: capturedColumns,
+		SchoolIDs:    schoolIDs,
+	}, nil
+}
+
+// AIQueryResult holds the result of an AI-powered database query
+type AIQueryResult struct {
+	ResponseText string                   // AI's natural language summary
+	SQLQuery     string                   // The SQL query that was executed
+	TableData    []map[string]interface{} // Full query results
+	TableColumns []string                 // Column names from the query
+	SchoolIDs    []string                 // Extracted school IDs (if applicable)
+}
+
+// summarizeQueryResults creates a concise summary of query results for agent context
+// This avoids filling the context window with large result sets
+func summarizeQueryResults(rows []map[string]interface{}, maxRows int) string {
+	if len(rows) == 0 {
+		return "Query returned 0 rows."
+	}
+
+	// Get column names from first row
+	var columns []string
+	for col := range rows[0] {
+		columns = append(columns, col)
+	}
+	sort.Strings(columns)
+
+	// Build summary
+	var summary strings.Builder
+	summary.WriteString(fmt.Sprintf("Query returned %d rows.\n\n", len(rows)))
+
+	// Include first N rows
+	displayRows := maxRows
+	if len(rows) < displayRows {
+		displayRows = len(rows)
+	}
+
+	summary.WriteString(fmt.Sprintf("First %d rows:\n", displayRows))
+	summary.WriteString(strings.Join(columns, " | ") + "\n")
+	summary.WriteString(strings.Repeat("-", len(columns)*20) + "\n")
+
+	for i := 0; i < displayRows; i++ {
+		row := rows[i]
+		var values []string
+		for _, col := range columns {
+			val := row[col]
+			if val == nil {
+				values = append(values, "NULL")
+			} else {
+				values = append(values, fmt.Sprintf("%v", val))
+			}
+		}
+		summary.WriteString(strings.Join(values, " | ") + "\n")
+	}
+
+	if len(rows) > displayRows {
+		summary.WriteString(fmt.Sprintf("\n... and %d more rows not shown ...\n", len(rows)-displayRows))
+	}
+
+	return summary.String()
 }

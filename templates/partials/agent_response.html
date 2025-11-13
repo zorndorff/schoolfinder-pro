@@ -6,11 +6,11 @@
             <p>{{.Error}}</p>
         </div>
     {{else}}
-        {{if .ResponseText}}
+        {{if .ResponseHTML}}
         <div class="ai-response-text">
             <h3>AI Analysis</h3>
             <div class="markdown-content">
-                <pre>{{.ResponseText}}</pre>
+                {{.ResponseHTML}}
             </div>
         </div>
         {{end}}

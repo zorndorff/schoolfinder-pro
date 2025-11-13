@@ -16,6 +16,9 @@ import (
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
 	"github.com/go-chi/chi/v5"
+	"github.com/gomarkdown/markdown"
+	"github.com/gomarkdown/markdown/html"
+	"github.com/gomarkdown/markdown/parser"
 	"schoolfinder/internal/agent"
 )
 
@@ -25,6 +28,25 @@ type WebHandler struct {
 	AIScraper  *AIScraperService
 	NAEPClient *NAEPClient
 	templates  *template.Template
+}
+
+// markdownToHTML converts markdown text to HTML
+func markdownToHTML(md string) template.HTML {
+	// Create markdown parser with extensions
+	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock
+	p := parser.NewWithExtensions(extensions)
+	doc := p.Parse([]byte(md))
+
+	// Create HTML renderer with options
+	htmlFlags := html.CommonFlags | html.HrefTargetBlank
+	opts := html.RendererOptions{Flags: htmlFlags}
+	renderer := html.NewRenderer(opts)
+
+	// Render markdown to HTML
+	htmlBytes := markdown.Render(doc, renderer)
+
+	// Return as template.HTML to prevent escaping
+	return template.HTML(htmlBytes)
 }
 
 // NAEPScoreView extends NAEPScore with pre-calculated achievement levels for templating
@@ -398,8 +420,9 @@ func (h *WebHandler) AgentPage(w http.ResponseWriter, r *http.Request) {
 // AgentQueryResponse holds the response data for agent queries
 type AgentQueryResponse struct {
 	Query         string
-	ResponseText  string // AI's text summary/answer
-	SQLQuery      string // The SQL query executed
+	ResponseText  string        // AI's text summary/answer (markdown)
+	ResponseHTML  template.HTML // AI's response converted to HTML
+	SQLQuery      string        // The SQL query executed
 	TableData     []map[string]interface{} // Raw query results as table
 	TableColumns  []string // Column names for table display
 	Schools       []*School
@@ -465,6 +488,7 @@ func (h *WebHandler) AgentQuery(w http.ResponseWriter, r *http.Request) {
 			data := AgentQueryResponse{
 				Query:        query,
 				ResponseText: result.ResponseText,
+				ResponseHTML: markdownToHTML(result.ResponseText),
 				SQLQuery:     result.SQLQuery,
 				TableData:    result.TableData,
 				TableColumns: result.TableColumns,
@@ -503,6 +527,7 @@ func (h *WebHandler) AgentQuery(w http.ResponseWriter, r *http.Request) {
 	data := AgentQueryResponse{
 		Query:        query,
 		ResponseText: result.ResponseText,
+		ResponseHTML: markdownToHTML(result.ResponseText),
 		SQLQuery:     result.SQLQuery,
 		TableData:    result.TableData,
 		TableColumns: result.TableColumns,

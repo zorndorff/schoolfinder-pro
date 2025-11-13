@@ -96,6 +96,15 @@ func (a *dbInterfaceAdapter) Close() error {
 	return a.db.Close()
 }
 
+func (a *dbInterfaceAdapter) ExecuteQuery(query string) ([]map[string]interface{}, error) {
+	// Cast to DBInterfaceExtended to access ExecuteQuery
+	dbExt, ok := a.db.(DBInterfaceExtended)
+	if !ok {
+		return nil, fmt.Errorf("database does not support ExecuteQuery")
+	}
+	return dbExt.ExecuteQuery(query)
+}
+
 // aiScraperInterfaceAdapter adapts cmd.AIScraperInterface to agent.AIScraperInterface
 type aiScraperInterfaceAdapter struct {
 	scraper AIScraperInterface

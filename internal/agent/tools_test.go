@@ -23,6 +23,14 @@ func (m *mockDB) Close() error {
 	return nil
 }
 
+func (m *mockDB) ExecuteQuery(query string) ([]map[string]interface{}, error) {
+	// Return sample results for testing
+	return []map[string]interface{}{
+		{"column1": "value1", "column2": "value2"},
+		{"column1": "value3", "column2": "value4"},
+	}, nil
+}
+
 type mockAIScraper struct{}
 
 func (m *mockAIScraper) ExtractSchoolDataWithWebSearch(school interface{}) (interface{}, error) {

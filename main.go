@@ -415,6 +415,15 @@ func (a *agentDBAdapter) Close() error {
 	return a.db.Close()
 }
 
+func (a *agentDBAdapter) ExecuteQuery(query string) ([]map[string]interface{}, error) {
+	// Cast to DBInterfaceExtended to access ExecuteQuery
+	dbExt, ok := a.db.(cmd.DBInterfaceExtended)
+	if !ok {
+		return nil, fmt.Errorf("database does not support ExecuteQuery")
+	}
+	return dbExt.ExecuteQuery(query)
+}
+
 // agentAIScraperAdapter adapts cmd.AIScraperInterface to agent.AIScraperInterface
 type agentAIScraperAdapter struct {
 	scraper cmd.AIScraperInterface
@@ -1626,6 +1635,10 @@ func (a *dbAdapter) GetSchoolByID(ncessch string) (*cmd.SchoolData, error) {
 
 func (a *dbAdapter) Close() error {
 	return a.db.Close()
+}
+
+func (a *dbAdapter) ExecuteQuery(query string) ([]map[string]interface{}, error) {
+	return a.db.ExecuteQuery(query)
 }
 
 // convertSchoolToCmd converts School to cmd.SchoolData

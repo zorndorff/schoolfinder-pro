@@ -77,6 +77,12 @@ type DBInterface interface {
 	Close() error
 }
 
+// DBInterfaceExtended extends DBInterface with additional query capabilities
+type DBInterfaceExtended interface {
+	DBInterface
+	ExecuteQuery(query string) ([]map[string]interface{}, error)
+}
+
 // AIScraperInterface defines the interface for AI scraping
 type AIScraperInterface interface {
 	ExtractSchoolDataWithWebSearch(school *SchoolData) (*EnhancedSchoolDataJSON, error)

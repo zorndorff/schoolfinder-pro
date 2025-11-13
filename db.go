@@ -300,6 +300,72 @@ func (d *DB) Close() error {
 	return d.conn.Close()
 }
 
+// ExecuteQuery executes an arbitrary SQL query and returns results as a slice of maps
+func (d *DB) ExecuteQuery(query string) ([]map[string]interface{}, error) {
+	rows, err := d.conn.Query(query)
+	if err != nil {
+		if logger != nil {
+			logger.Error("Query execution failed", "error", err, "query", query)
+		}
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	// Get column names
+	columns, err := rows.Columns()
+	if err != nil {
+		if logger != nil {
+			logger.Error("Failed to get column names", "error", err)
+		}
+		return nil, fmt.Errorf("failed to get column names: %w", err)
+	}
+
+	// Prepare result slice
+	var results []map[string]interface{}
+
+	// Iterate through rows
+	for rows.Next() {
+		// Create a slice of interface{} to hold each column value
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+
+		// Scan the row
+		if err := rows.Scan(valuePtrs...); err != nil {
+			if logger != nil {
+				logger.Error("Failed to scan row", "error", err)
+			}
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Create a map for this row
+		rowMap := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+
+			// Convert []byte to string for better JSON serialization
+			if b, ok := val.([]byte); ok {
+				rowMap[col] = string(b)
+			} else {
+				rowMap[col] = val
+			}
+		}
+
+		results = append(results, rowMap)
+	}
+
+	if err := rows.Err(); err != nil {
+		if logger != nil {
+			logger.Error("Row iteration error", "error", err, "results_count", len(results))
+		}
+		return nil, err
+	}
+
+	return results, nil
+}
+
 func (d *DB) SearchSchools(query string, state string, limit int) ([]School, error) {
 	var schools []School
 

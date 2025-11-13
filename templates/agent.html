@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent - School Finder</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><img src="/static/favicon.png" alt="School Finder Icon" class="favicon"/> <a href="/">School Finder</a></h1>
+            <p class="subtitle">AI-Powered Data Explorer</p>
+            <nav class="main-nav">
+                <a href="/">Search</a>
+                <a href="/agent" class="active">Data Explorer</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="agent-container">
+            <div class="agent-header">
+                <h1>Interactive Data Explorer</h1>
+                <p class="help-text">
+                    Ask questions about the school database and get AI-powered insights with SQL-backed analysis.
+                    The agent can search, analyze, aggregate, compare, and generate insights from the data.
+                </p>
+            </div>
+
+            <div class="agent-query-box">
+                <form
+                    hx-post="/agent/query"
+                    hx-target="#agent-response"
+                    hx-indicator="#agent-loading"
+                    hx-swap="innerHTML"
+                >
+                    <div class="query-input-group">
+                        <textarea
+                            name="query"
+                            id="agent-query"
+                            placeholder="Ask me anything about the school data... e.g., 'What is the average enrollment by state?' or 'Show me the top 10 schools by student-teacher ratio'"
+                            rows="3"
+                            required
+                            autofocus
+                        >{{.Query}}</textarea>
+                        <button type="submit" class="btn btn-primary">
+                            {{if .AIAvailable}}
+                            Analyze Data
+                            {{else}}
+                            AI Not Available
+                            {{end}}
+                        </button>
+                    </div>
+                </form>
+
+                {{if not .AIAvailable}}
+                <div class="error-message">
+                    <p>AI Agent requires ANTHROPIC_API_KEY to be set.</p>
+                </div>
+                {{end}}
+            </div>
+
+            <div id="agent-loading" class="htmx-indicator agent-loading">
+                <div class="spinner"></div>
+                <p>AI is thinking...</p>
+            </div>
+
+            <div id="agent-response" class="agent-response">
+                {{if .Response}}
+                    {{template "agent_response.html" .}}
+                {{else}}
+                    <div class="agent-welcome">
+                        <h2>What would you like to know about the school data?</h2>
+                        <div class="suggestion-cards">
+                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                                <strong>Statistical Analysis</strong>
+                                <p>What is the average enrollment by state?</p>
+                            </button>
+                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                                <strong>Rankings</strong>
+                                <p>Show me the top 20 schools by student-teacher ratio</p>
+                            </button>
+                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                                <strong>Comparisons</strong>
+                                <p>Compare charter schools vs regular public schools in California</p>
+                            </button>
+                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                                <strong>Distribution</strong>
+                                <p>How many elementary, middle, and high schools are there in each state?</p>
+                            </button>
+                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                                <strong>Specific Search</strong>
+                                <p>Find large charter high schools in urban areas</p>
+                            </button>
+                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                                <strong>Trends</strong>
+                                <p>Which states have the highest concentration of charter schools?</p>
+                            </button>
+                        </div>
+                    </div>
+                {{end}}
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Data from NCES Common Core of Data (CCD) 2023-24 | <a href="https://github.com/yourusername/schoolfinder-pro">GitHub</a></p>
+        </div>
+    </footer>
+
+    <script>
+        function fillQuery(text) {
+            // Extract the descriptive text from the suggestion card
+            const textarea = document.getElementById('agent-query');
+            const lines = text.trim().split('\n');
+            textarea.value = lines[lines.length - 1]; // Get the last line (the actual query)
+            textarea.focus();
+        }
+    </script>
+</body>
+</html>

@@ -45,6 +45,11 @@ func StartServer(config ServerConfig) error {
 	r.Post("/schools/{id}/ai", webHandler.ExtractAI)
 	r.Post("/schools/{id}/naep", webHandler.FetchNAEP)
 
+	// AI Agent / Data Explorer routes
+	r.Get("/agent", webHandler.AgentPage)
+	r.Post("/agent/query", webHandler.AgentQuery)
+	r.Post("/agent/paginate", webHandler.AgentPaginate)
+
 	// API handlers (JSON responses)
 	apiHandler := &APIHandler{DB: config.DB, AIScraper: config.AIScraper}
 	r.Route("/api", func(r chi.Router) {

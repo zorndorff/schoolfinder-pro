@@ -8,10 +8,14 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"charm.land/fantasy"
+	"charm.land/fantasy/providers/anthropic"
 	"github.com/go-chi/chi/v5"
+	"schoolfinder/internal/agent"
 )
 
 // WebHandler handles HTMX HTML requests
@@ -589,14 +593,178 @@ func (h *WebHandler) AgentPaginate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// queryWithAI uses Claude to interpret a natural language query and search the database
+// queryWithAI uses Fantasy agent to interpret natural language queries and execute SQL
+// The agent has built-in retry logic and will self-correct failed SQL queries
 func (h *WebHandler) queryWithAI(ctx context.Context, query string) (string, []string, error) {
-	// This is a placeholder implementation
-	// In a real implementation, you would:
-	// 1. Use Claude to understand the query
-	// 2. Generate appropriate database queries
-	// 3. Execute the queries
-	// 4. Format the response
+	// Get API key from environment
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		return "", nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
+	}
 
-	return h.AIScraper.QuerySchoolDatabase(ctx, h.DB, query)
+	// Create Anthropic provider for Fantasy
+	provider, err := anthropic.New(anthropic.WithAPIKey(apiKey))
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create provider: %w", err)
+	}
+
+	// Create language model (use Haiku 4.5 for speed)
+	model, err := provider.LanguageModel(ctx, "claude-haiku-4-5")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create model: %w", err)
+	}
+
+	// Define system prompt for data exploration
+	systemPrompt := `You are a data analyst helping users explore a school database with 102,274 schools from the NCES Common Core of Data (CCD).
+
+**Your Task:**
+Answer the user's question by querying the database using the 'query' tool.
+
+**Available Tools:**
+- 'query': Execute SQL queries against the DuckDB database
+- 'schema': Get database schema information
+
+**Database Schema:**
+- **directory**: School information (NCESSCH, SCH_NAME, ST, STATENAME, MCITY, LEA_NAME, SCH_TYPE_TEXT, LEVEL, GSLO, GSHI, CHARTER_TEXT, PHONE, WEBSITE, MSTREET1, MZIP, SCHOOL_YEAR)
+- **enrollment**: Student counts (NCESSCH, STUDENT_COUNT, TOTAL_INDICATOR - use = 'Education Unit Total' for totals)
+- **teachers**: Teacher FTE counts (NCESSCH, TEACHERS)
+
+**Query Strategy:**
+1. For SEARCH queries (finding specific schools): Return SQL that selects NCESSCH IDs
+   Example: "SELECT d.NCESSCH FROM directory d WHERE d.ST = 'CA' AND d.LEVEL = 'High' LIMIT 200"
+
+2. For ANALYSIS queries (statistics/aggregations): Return SQL with aggregated results
+   Example: "SELECT d.ST, AVG(e.STUDENT_COUNT) as avg_enrollment FROM directory d LEFT JOIN enrollment e ON d.NCESSCH = e.NCESSCH WHERE e.TOTAL_INDICATOR = 'Education Unit Total' GROUP BY d.ST"
+
+**Important SQL Guidelines:**
+- JOIN on NCESSCH
+- For enrollment: Use "e.TOTAL_INDICATOR = 'Education Unit Total'" in JOIN condition
+- Student-teacher ratio: CAST(e.STUDENT_COUNT AS FLOAT) / t.TEACHERS
+- Use ST (2-letter code) not STATENAME for filtering
+- Limit search results to 200
+- Database is DuckDB (PostgreSQL-compatible)
+
+**If SQL Fails:**
+The query tool will return an error. Analyze the error, correct your SQL, and try again. Common issues:
+- Column names are case-sensitive
+- Missing JOIN conditions
+- Incorrect aggregate usage
+
+**Response Format:**
+1. Execute the query using the 'query' tool
+2. Summarize the results in natural language
+3. If it's a search query, list the school IDs found
+4. If it's an analysis, present the aggregated data clearly`
+
+	// Create query tool for SQL execution
+	queryTool := fantasy.NewAgentTool(
+		"query",
+		"Execute a SQL query against the DuckDB database and return results as JSON",
+		func(ctx context.Context, input agent.QueryInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			if input.SQL == "" {
+				return fantasy.NewTextErrorResponse("sql parameter is required"), nil
+			}
+
+			// Execute the query using the DB
+			rows, err := h.DB.ExecuteQuery(input.SQL)
+			if err != nil {
+				// Return the error so agent can retry with corrected SQL
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("SQL error: %v", err)), nil
+			}
+
+			// Convert to JSON
+			jsonBytes, err := json.MarshalIndent(rows, "", "  ")
+			if err != nil {
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to encode results: %v", err)), nil
+			}
+
+			return fantasy.NewTextResponse(string(jsonBytes)), nil
+		},
+	)
+
+	// Create schema tool for database introspection
+	schemaTool := fantasy.NewAgentTool(
+		"schema",
+		"Get database schema information for all tables",
+		func(ctx context.Context, input agent.SchemaInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			tables := []string{"directory", "teachers", "enrollment"}
+			type SchemaOutput struct {
+				TableName string `json:"table_name"`
+				Columns   []struct {
+					Name string `json:"name"`
+					Type string `json:"type"`
+				} `json:"columns"`
+			}
+			schemas := make([]SchemaOutput, 0, len(tables))
+
+			for _, tableName := range tables {
+				pragmaQuery := fmt.Sprintf("PRAGMA table_info('%s')", tableName)
+				rows, err := h.DB.ExecuteQuery(pragmaQuery)
+				if err != nil {
+					continue
+				}
+
+				schema := SchemaOutput{
+					TableName: tableName,
+					Columns:   make([]struct{ Name string `json:"name"`; Type string `json:"type"` }, 0),
+				}
+
+				for _, row := range rows {
+					name, _ := row["name"].(string)
+					colType, _ := row["type"].(string)
+					schema.Columns = append(schema.Columns, struct {
+						Name string `json:"name"`
+						Type string `json:"type"`
+					}{Name: name, Type: colType})
+				}
+
+				schemas = append(schemas, schema)
+			}
+
+			jsonBytes, _ := json.MarshalIndent(schemas, "", "  ")
+			return fantasy.NewTextResponse(string(jsonBytes)), nil
+		},
+	)
+
+	// Create Fantasy agent with tools (Fantasy handles retries internally)
+	fantasyAgent := fantasy.NewAgent(
+		model,
+		fantasy.WithSystemPrompt(systemPrompt),
+		fantasy.WithTools(queryTool, schemaTool),
+	)
+
+	// Generate response using the agent
+	result, err := fantasyAgent.Generate(ctx, fantasy.AgentCall{Prompt: query})
+	if err != nil {
+		return "", nil, fmt.Errorf("agent generation failed: %w", err)
+	}
+
+	// Extract response text
+	responseText := result.Response.Content.Text()
+
+	// Parse school IDs from the response if it's a search query
+	// Look for NCESSCH values in the response
+	var schoolIDs []string
+
+	// Try to find JSON arrays in the response that might contain school IDs
+	if strings.Contains(responseText, "NCESSCH") {
+		// Extract school IDs from JSON-like patterns
+		lines := strings.Split(responseText, "\n")
+		for _, line := range lines {
+			// Look for NCESSCH patterns like: "NCESSCH": "123456789012"
+			if strings.Contains(line, `"NCESSCH"`) || strings.Contains(line, `"ncessch"`) {
+				// Extract the ID value
+				parts := strings.Split(line, ":")
+				if len(parts) >= 2 {
+					idPart := strings.TrimSpace(parts[1])
+					idPart = strings.Trim(idPart, `",`)
+					if len(idPart) == 12 { // NCESSCH IDs are 12 digits
+						schoolIDs = append(schoolIDs, idPart)
+					}
+				}
+			}
+		}
+	}
+
+	return responseText, schoolIDs, nil
 }

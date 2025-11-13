@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -74,10 +75,11 @@ type EnhancedSchoolData struct {
 
 // AIScraperService handles website scraping with Claude
 type AIScraperService struct {
-	client     *anthropic.Client
-	db         *DB
-	cacheTTL   time.Duration
-	httpClient *http.Client
+	client         *anthropic.Client
+	db             *DB
+	cacheTTL       time.Duration
+	httpClient     *http.Client
+	maxSQLRetries  int // Maximum attempts to correct failed SQL queries
 }
 
 // NewAIScraperService creates a new AI scraper service
@@ -91,14 +93,27 @@ func NewAIScraperService(apiKey string, db *DB) (*AIScraperService, error) {
 
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 
+	// Get max retries from environment or use default
+	maxRetries := 3
+	if retryStr := os.Getenv("AI_SQL_MAX_RETRIES"); retryStr != "" {
+		if r, err := fmt.Sscanf(retryStr, "%d", &maxRetries); err == nil && r == 1 {
+			if maxRetries < 0 {
+				maxRetries = 0
+			} else if maxRetries > 5 {
+				maxRetries = 5 // Cap at 5 to avoid excessive API calls
+			}
+		}
+	}
+
 	if logger != nil {
-		logger.Info("AI scraper service initialized with database caching", "cache_ttl_days", 30)
+		logger.Info("AI scraper service initialized with database caching", "cache_ttl_days", 30, "max_sql_retries", maxRetries)
 	}
 
 	return &AIScraperService{
-		client:   &client,
-		db:       db,
-		cacheTTL: 30 * 24 * time.Hour, // 30 days
+		client:        &client,
+		db:            db,
+		cacheTTL:      30 * 24 * time.Hour, // 30 days
+		maxSQLRetries: maxRetries,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -534,10 +549,18 @@ func FormatEnhancedData(data *EnhancedSchoolData) string {
 	return b.String()
 }
 
-// QuerySchoolDatabase uses Claude to interpret a natural language query and analyze the database
-func (s *AIScraperService) QuerySchoolDatabase(ctx context.Context, db *DB, query string) (string, []string, error) {
-	// Build the prompt for Claude
-	prompt := fmt.Sprintf(`You are an AI data analyst helping users explore and analyze a database of 102,274 schools from the NCES Common Core of Data (CCD).
+// sqlQueryResult holds the parsed result from Claude's SQL generation
+type sqlQueryResult struct {
+	QueryType   string `json:"query_type"`   // "search" or "analysis"
+	Explanation string `json:"explanation"`
+	SQLQuery    string `json:"sql_query"`    // Full SQL query
+	Analysis    string `json:"analysis"`     // Additional analysis text (optional)
+}
+
+// generateSQLFromClaude calls Claude to generate SQL based on user query and optional error context
+func (s *AIScraperService) generateSQLFromClaude(ctx context.Context, query string, previousSQL string, sqlError string, attempt int) (*sqlQueryResult, error) {
+	// Build the base prompt
+	promptBase := `You are an AI data analyst helping users explore and analyze a database of 102,274 schools from the NCES Common Core of Data (CCD).
 
 **Database Schema:**
 
@@ -586,6 +609,7 @@ For ANALYSIS (returns aggregated data):
 - Use ST (not STATENAME) for state filtering
 - LIMIT 200 for searches
 - Use proper aggregation functions (COUNT, AVG, SUM, MIN, MAX)
+- Database engine is DuckDB (PostgreSQL-compatible syntax)
 
 **Examples:**
 
@@ -597,8 +621,35 @@ For ANALYSIS (returns aggregated data):
 
 "Top 10 schools by student-teacher ratio"
 → {"query_type": "search", "explanation": "Finding schools with best student-teacher ratios", "sql_query": "SELECT d.NCESSCH FROM directory d INNER JOIN enrollment e ON d.NCESSCH = e.NCESSCH AND e.TOTAL_INDICATOR = 'Education Unit Total' INNER JOIN teachers t ON d.NCESSCH = t.NCESSCH WHERE t.TEACHERS > 0 ORDER BY CAST(e.STUDENT_COUNT AS FLOAT) / t.TEACHERS LIMIT 10"}
+`
 
-Return ONLY JSON, no other text.`, query)
+	// Add error correction context if this is a retry
+	var prompt string
+	if sqlError != "" && previousSQL != "" {
+		prompt = fmt.Sprintf(`%s
+
+**IMPORTANT - SQL ERROR CORRECTION (Attempt %d):**
+
+Your previous SQL query failed with an error. Please analyze the error and generate a corrected query.
+
+Previous SQL Query:
+%s
+
+Error Message:
+%s
+
+Please fix the SQL query to resolve this error. Common issues:
+- Column names must match the schema exactly (check capitalization)
+- Ensure proper JOIN conditions
+- Verify aggregate functions are used correctly with GROUP BY
+- Check for syntax errors
+
+Return ONLY the corrected JSON with the fixed sql_query field.`, promptBase, attempt, previousSQL, sqlError)
+	} else {
+		prompt = promptBase + "\n\nReturn ONLY JSON, no other text."
+	}
+
+	prompt = fmt.Sprintf(prompt, query)
 
 	// Call Claude API
 	params := anthropic.MessageNewParams{
@@ -612,14 +663,17 @@ Return ONLY JSON, no other text.`, query)
 	message, err := s.client.Messages.New(ctx, params)
 	if err != nil {
 		if logger != nil {
-			logger.Error("Claude API call failed for database query", "error", err, "query", query)
+			logger.Error("Claude API call failed for SQL generation", "error", err, "query", query, "attempt", attempt)
 		}
-		return "", nil, fmt.Errorf("Claude API error: %w", err)
+		return nil, fmt.Errorf("Claude API error: %w", err)
 	}
 
 	// Extract response
 	if len(message.Content) == 0 {
-		return "", nil, fmt.Errorf("empty response from Claude")
+		if logger != nil {
+			logger.Error("Empty response from Claude for SQL generation", "query", query, "attempt", attempt)
+		}
+		return nil, fmt.Errorf("empty response from Claude")
 	}
 
 	responseText := ""
@@ -630,16 +684,14 @@ Return ONLY JSON, no other text.`, query)
 	}
 
 	if responseText == "" {
-		return "", nil, fmt.Errorf("no text response from Claude")
+		if logger != nil {
+			logger.Error("No text content in Claude response for SQL generation", "query", query, "attempt", attempt)
+		}
+		return nil, fmt.Errorf("no text response from Claude")
 	}
 
 	// Parse JSON response
-	var result struct {
-		QueryType   string `json:"query_type"`   // "search" or "analysis"
-		Explanation string `json:"explanation"`
-		SQLQuery    string `json:"sql_query"`    // Full SQL query
-		Analysis    string `json:"analysis"`     // Additional analysis text (optional)
-	}
+	var result sqlQueryResult
 
 	// Try to extract JSON from response (it might be wrapped in markdown)
 	jsonStr := responseText
@@ -657,127 +709,233 @@ Return ONLY JSON, no other text.`, query)
 		}
 	}
 
-	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonStr)), &result); err != nil {
+	jsonStr = strings.TrimSpace(jsonStr)
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
 		if logger != nil {
-			logger.Error("Failed to parse Claude response as JSON", "error", err, "response", responseText)
+			logger.Error("Failed to parse Claude response as JSON for SQL generation",
+				"error", err,
+				"response_preview", truncateString(responseText, 200),
+				"attempt", attempt)
 		}
-		// Fallback: return the raw response as analysis
-		return responseText, []string{}, nil
+		return nil, fmt.Errorf("failed to parse SQL response as JSON: %w", err)
 	}
-
-	// Execute the SQL query
-	var schoolIDs []string
-	fullResponse := result.Explanation
 
 	if result.SQLQuery == "" {
 		if logger != nil {
-			logger.Warn("No SQL query generated by AI", "query", query)
+			logger.Warn("Claude generated empty SQL query", "query", query, "attempt", attempt)
 		}
-		return result.Explanation, []string{}, nil
+		return nil, fmt.Errorf("Claude generated empty SQL query")
 	}
 
-	// Log the generated SQL for debugging
 	if logger != nil {
-		logger.Info("Executing AI-generated SQL", "query_type", result.QueryType, "sql", result.SQLQuery)
+		logger.Info("Successfully generated SQL from Claude",
+			"query", query,
+			"query_type", result.QueryType,
+			"attempt", attempt)
 	}
 
-	// Execute the SQL query
-	rows, err := db.conn.Query(result.SQLQuery)
-	if err != nil {
-		if logger != nil {
-			logger.Error("Failed to execute AI-generated SQL query", "error", err, "sql", result.SQLQuery)
-		}
-		return fmt.Sprintf("%s\n\nError executing query: %v", result.Explanation, err), []string{}, nil
-	}
-	defer rows.Close()
+	return &result, nil
+}
 
-	// Handle different query types
-	if result.QueryType == "search" {
-		// For search queries, extract NCESSCH IDs
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				continue
+// QuerySchoolDatabase uses Claude to generate and execute SQL queries against the school database
+// It implements retry logic with self-correction for failed SQL queries
+func (s *AIScraperService) QuerySchoolDatabase(ctx context.Context, db *DB, query string) (string, []string, error) {
+	if db == nil {
+		return "", nil, fmt.Errorf("database not available")
+	}
+
+	var lastError error
+	var previousSQL string
+
+	// Retry loop with self-correction
+	for attempt := 1; attempt <= s.maxSQLRetries; attempt++ {
+		// Generate SQL using Claude
+		var sqlResult *sqlQueryResult
+		var err error
+
+		if attempt == 1 {
+			// First attempt: generate SQL from scratch
+			if logger != nil {
+				logger.Info("Generating SQL for database query", "query", query, "attempt", attempt)
 			}
-			schoolIDs = append(schoolIDs, id)
+			sqlResult, err = s.generateSQLFromClaude(ctx, query, "", "", attempt)
+		} else {
+			// Retry attempt: include previous SQL and error for correction
+			if logger != nil {
+				logger.Info("Retrying SQL generation with error correction",
+					"query", query,
+					"attempt", attempt,
+					"previous_error", lastError.Error())
+			}
+			sqlResult, err = s.generateSQLFromClaude(ctx, query, previousSQL, lastError.Error(), attempt)
 		}
 
-		fullResponse = fmt.Sprintf("%s\n\nFound %d schools.", result.Explanation, len(schoolIDs))
-
-	} else if result.QueryType == "analysis" {
-		// For analysis queries, format the results as a table/text
-		columns, err := rows.Columns()
 		if err != nil {
-			return fmt.Sprintf("%s\n\nError reading results.", result.Explanation), []string{}, nil
+			// If we can't even generate SQL, no point retrying
+			if logger != nil {
+				logger.Error("Failed to generate SQL from Claude", "error", err, "query", query, "attempt", attempt)
+			}
+			return "", nil, fmt.Errorf("SQL generation failed: %w", err)
 		}
 
-		// Build result table
-		var analysisResults strings.Builder
-		analysisResults.WriteString("\n\n**Results:**\n\n")
+		previousSQL = sqlResult.SQLQuery
 
-		// Read all rows
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range columns {
-			valuePtrs[i] = &values[i]
+		// Log the generated SQL for debugging
+		if logger != nil {
+			logger.Info("Executing AI-generated SQL",
+				"query_type", sqlResult.QueryType,
+				"sql_preview", truncateString(sqlResult.SQLQuery, 150),
+				"attempt", attempt)
 		}
 
-		rowCount := 0
-		for rows.Next() {
-			if err := rows.Scan(valuePtrs...); err != nil {
-				continue
+		// Execute the SQL query
+		rows, err := db.conn.Query(sqlResult.SQLQuery)
+		if err != nil {
+			lastError = err
+			if logger != nil {
+				logger.Warn("SQL execution failed, will retry if attempts remain",
+					"error", err,
+					"sql", sqlResult.SQLQuery,
+					"attempt", attempt,
+					"max_retries", s.maxSQLRetries)
+			}
+
+			// If this was the last attempt, return error
+			if attempt >= s.maxSQLRetries {
+				return "", nil, fmt.Errorf("SQL execution failed after %d attempts: %w\n\nLast SQL:\n%s",
+					attempt, err, sqlResult.SQLQuery)
+			}
+
+			// Continue to next retry attempt
+			continue
+		}
+		defer rows.Close()
+
+		// Success! Process results based on query type
+		var schoolIDs []string
+		fullResponse := sqlResult.Explanation
+
+		if sqlResult.QueryType == "search" {
+			// For search queries, extract NCESSCH IDs
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err != nil {
+					if logger != nil {
+						logger.Warn("Failed to scan school ID from result", "error", err)
+					}
+					continue
+				}
+				schoolIDs = append(schoolIDs, id)
+			}
+
+			fullResponse = fmt.Sprintf("%s\n\nFound %d schools.", sqlResult.Explanation, len(schoolIDs))
+
+			// Add retry note if we needed more than one attempt
+			if attempt > 1 {
+				fullResponse += fmt.Sprintf("\n\n*(Query succeeded on attempt %d after SQL self-correction)*", attempt)
+			}
+
+		} else if sqlResult.QueryType == "analysis" {
+			// For analysis queries, format the results as a table/text
+			columns, err := rows.Columns()
+			if err != nil {
+				if logger != nil {
+					logger.Error("Failed to get result columns", "error", err)
+				}
+				return fmt.Sprintf("%s\n\nError reading results: %v", sqlResult.Explanation, err), []string{}, nil
+			}
+
+			// Build result table
+			var analysisResults strings.Builder
+			analysisResults.WriteString("\n\n**Results:**\n\n")
+
+			// Read all rows
+			values := make([]interface{}, len(columns))
+			valuePtrs := make([]interface{}, len(columns))
+			for i := range columns {
+				valuePtrs[i] = &values[i]
+			}
+
+			rowCount := 0
+			for rows.Next() {
+				if err := rows.Scan(valuePtrs...); err != nil {
+					if logger != nil {
+						logger.Warn("Failed to scan result row", "error", err, "row", rowCount)
+					}
+					continue
+				}
+
+				if rowCount == 0 {
+					// Header
+					analysisResults.WriteString("| ")
+					for _, col := range columns {
+						analysisResults.WriteString(fmt.Sprintf("%s | ", col))
+					}
+					analysisResults.WriteString("\n|")
+					for range columns {
+						analysisResults.WriteString("---|")
+					}
+					analysisResults.WriteString("\n")
+				}
+
+				// Data row
+				analysisResults.WriteString("| ")
+				for _, val := range values {
+					if val == nil {
+						analysisResults.WriteString("NULL | ")
+					} else {
+						// Format based on type
+						switch v := val.(type) {
+						case float64:
+							analysisResults.WriteString(fmt.Sprintf("%.2f | ", v))
+						case int64:
+							analysisResults.WriteString(fmt.Sprintf("%d | ", v))
+						default:
+							analysisResults.WriteString(fmt.Sprintf("%v | ", v))
+						}
+					}
+				}
+				analysisResults.WriteString("\n")
+
+				rowCount++
+				if rowCount >= 50 { // Limit to 50 rows for display
+					break
+				}
 			}
 
 			if rowCount == 0 {
-				// Header
-				analysisResults.WriteString("| ")
-				for _, col := range columns {
-					analysisResults.WriteString(fmt.Sprintf("%s | ", col))
-				}
-				analysisResults.WriteString("\n|")
-				for range columns {
-					analysisResults.WriteString("---|")
-				}
-				analysisResults.WriteString("\n")
+				analysisResults.WriteString("No results found.\n")
+			} else if rowCount == 50 {
+				analysisResults.WriteString("\n*(Showing first 50 results)*\n")
 			}
 
-			// Data row
-			analysisResults.WriteString("| ")
-			for _, val := range values {
-				if val == nil {
-					analysisResults.WriteString("NULL | ")
-				} else {
-					// Format based on type
-					switch v := val.(type) {
-					case float64:
-						analysisResults.WriteString(fmt.Sprintf("%.2f | ", v))
-					case int64:
-						analysisResults.WriteString(fmt.Sprintf("%d | ", v))
-					default:
-						analysisResults.WriteString(fmt.Sprintf("%v | ", v))
-					}
-				}
-			}
-			analysisResults.WriteString("\n")
+			fullResponse = sqlResult.Explanation + analysisResults.String()
 
-			rowCount++
-			if rowCount >= 50 { // Limit to 50 rows for display
-				break
+			// Add retry note if we needed more than one attempt
+			if attempt > 1 {
+				fullResponse += fmt.Sprintf("\n\n*(Query succeeded on attempt %d after SQL self-correction)*", attempt)
 			}
 		}
 
-		if rowCount == 0 {
-			analysisResults.WriteString("No results found.\n")
-		} else if rowCount == 50 {
-			analysisResults.WriteString("\n*(Showing first 50 results)*\n")
+		if logger != nil {
+			logger.Info("Successfully processed AI database query",
+				"query", query,
+				"query_type", sqlResult.QueryType,
+				"school_results", len(schoolIDs),
+				"attempt", attempt)
 		}
 
-		fullResponse = result.Explanation + analysisResults.String()
+		return fullResponse, schoolIDs, nil
 	}
 
-	if logger != nil {
-		logger.Info("Successfully processed AI database query", "query", query, "query_type", result.QueryType, "results", len(schoolIDs))
-	}
+	// Should never reach here, but just in case
+	return "", nil, fmt.Errorf("SQL query failed after %d attempts: %w", s.maxSQLRetries, lastError)
+}
 
-	return fullResponse, schoolIDs, nil
+// truncateString truncates a string to maxLen characters, adding "..." if truncated
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

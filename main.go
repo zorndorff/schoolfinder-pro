@@ -93,32 +93,34 @@ const (
 )
 
 type model struct {
-	db            *DB
-	aiScraper     *AIScraperService
-	naepClient    *NAEPClient
-	dataDir       string
-	currentView   view
-	searchInput   textinput.Model
-	saveInput     textinput.Model
-	viewport      viewport.Model
-	stateFilter   string
-	schools       []School
-	list          list.Model
-	selectedItem  *School
-	enhancedData  *EnhancedSchoolData
-	naepData      *NAEPData
-	width         int
-	height        int
-	err           error
-	loading       bool
-	scrapingAI    bool
-	loadingNAEP   bool
-	saveSuccess   string
-	viewportReady bool
-	autoFetchNAEP bool // Auto-fetch NAEP data when viewing details
-	useAI         bool // Use AI ask mode instead of search
-	aiResponse    string
-	askingAI      bool
+	db              *DB
+	aiScraper       *AIScraperService
+	naepClient      *NAEPClient
+	dataDir         string
+	currentView     view
+	searchInput     textinput.Model
+	saveInput       textinput.Model
+	viewport        viewport.Model
+	aiViewport      viewport.Model // Separate viewport for AI responses
+	stateFilter     string
+	schools         []School
+	list            list.Model
+	selectedItem    *School
+	enhancedData    *EnhancedSchoolData
+	naepData        *NAEPData
+	width           int
+	height          int
+	err             error
+	loading         bool
+	scrapingAI      bool
+	loadingNAEP     bool
+	saveSuccess     string
+	viewportReady   bool
+	aiViewportReady bool // Track AI viewport readiness
+	autoFetchNAEP   bool // Auto-fetch NAEP data when viewing details
+	useAI           bool // Use AI ask mode instead of search
+	aiResponse      string
+	askingAI        bool
 }
 
 type schoolItem struct {
@@ -465,6 +467,10 @@ func initialModel(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient, d
 	vp := viewport.New(80, 20)
 	vp.Style = lipgloss.NewStyle()
 
+	// Create AI viewport
+	aiVp := viewport.New(80, 20)
+	aiVp.Style = lipgloss.NewStyle()
+
 	// Check if auto-fetch NAEP is enabled (default: true)
 	autoFetchNAEP := true
 	if autoFetchEnv := os.Getenv("NAEP_AUTO_FETCH"); autoFetchEnv != "" {
@@ -480,6 +486,7 @@ func initialModel(db *DB, aiScraper *AIScraperService, naepClient *NAEPClient, d
 		searchInput:   ti,
 		saveInput:     si,
 		viewport:      vp,
+		aiViewport:    aiVp,
 		list:          l,
 		schools:       []School{},
 		autoFetchNAEP: autoFetchNAEP,
@@ -505,9 +512,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Height = msg.Height - 6
 		m.viewportReady = true
 
+		// Update AI viewport dimensions
+		// Reserve more space for header, input, and help text in AI mode
+		m.aiViewport.Width = msg.Width - 4
+		m.aiViewport.Height = msg.Height - 15 // More space for UI elements
+		m.aiViewportReady = true
+
 		// Refresh viewport content if in detail view
 		if m.currentView == detailView {
 			m.updateDetailViewport()
+		}
+
+		// Update AI viewport content if in AI mode and we have a response
+		if m.currentView == searchView && m.useAI && m.aiResponse != "" {
+			m.updateAIViewport()
 		}
 
 		return m, nil
@@ -615,6 +633,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.aiResponse = msg.response
 		m.err = nil
+		m.aiViewport.GotoTop() // Reset scroll position for new response
+		m.updateAIViewport()   // Load content into viewport
 		if logger != nil {
 			logger.Info("AI ask completed", "query", m.searchInput.Value())
 		}
@@ -635,6 +655,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleSearchViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle scrolling in AI mode when response is showing
+	if m.useAI && m.aiResponse != "" && !m.searchInput.Focused() {
+		switch msg.Type {
+		case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown, tea.KeyHome, tea.KeyEnd:
+			var cmd tea.Cmd
+			m.aiViewport, cmd = m.aiViewport.Update(msg)
+			return m, cmd
+		}
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyEsc:
 		return m, tea.Quit
@@ -858,13 +888,27 @@ func (m model) searchViewRender() string {
 	b.WriteString(inputStyle.Render(m.searchInput.View()))
 	b.WriteString("\n")
 
-	// AI mode toggle indicator
-	toggleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("33"))
+	// AI mode toggle indicator with better visual design
 	if m.useAI {
-		b.WriteString(toggleStyle.Render("🤖 AI Mode: ON (Ctrl+T to toggle)"))
+		modeStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("33")).
+			Background(lipgloss.Color("236")).
+			Padding(0, 1).
+			Bold(true)
+		b.WriteString(modeStyle.Render("🤖 AI Data Explorer Mode"))
+		b.WriteString(" ")
+		hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		b.WriteString(hintStyle.Render("(Ctrl+T: Switch to search)"))
 	} else {
-		b.WriteString(toggleStyle.Render("🔍 Search Mode: ON (Ctrl+T to toggle)"))
+		modeStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("62")).
+			Background(lipgloss.Color("236")).
+			Padding(0, 1).
+			Bold(true)
+		b.WriteString(modeStyle.Render("🔍 Search Mode"))
+		b.WriteString(" ")
+		hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		b.WriteString(hintStyle.Render("(Ctrl+T: Switch to AI explorer)"))
 	}
 	b.WriteString("\n")
 
@@ -884,12 +928,22 @@ func (m model) searchViewRender() string {
 		b.WriteString("Loading...\n")
 	}
 
-	// AI loading indicator
+	// AI loading indicator with better visual feedback
 	if m.askingAI {
-		aiLoadingStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("226")).
-			Bold(true)
-		b.WriteString(aiLoadingStyle.Render("🤖 AI is thinking...\n"))
+		loadingBox := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("226")).
+			Padding(1, 2).
+			Foreground(lipgloss.Color("226"))
+
+		loadingText := "🤖 AI Data Explorer is analyzing your query...\n\n"
+		loadingText += "• Interpreting natural language query\n"
+		loadingText += "• Generating optimized SQL\n"
+		loadingText += "• Querying 102K+ schools database\n"
+		loadingText += "• Preparing insights"
+
+		b.WriteString(loadingBox.Render(loadingText))
+		b.WriteString("\n")
 	}
 
 	// Error display
@@ -898,14 +952,33 @@ func (m model) searchViewRender() string {
 		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v\n", m.err)))
 	}
 
-	// AI response display
-	if m.useAI && m.aiResponse != "" {
-		aiResponseStyle := lipgloss.NewStyle().
+	// AI welcome/suggestions display (when in AI mode but no query yet)
+	if m.useAI && m.aiResponse == "" && !m.askingAI && m.err == nil {
+		welcomeBox := lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("33")).
-			Padding(1, 2).
-			MarginBottom(1)
+			Padding(1, 2)
 
+		welcomeTitle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("33")).
+			Render("💡 What would you like to know about the school data?")
+
+		exampleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		examples := "\n\nTry asking questions like:\n\n"
+		examples += "  • What is the average enrollment by state?\n"
+		examples += "  • Show me the top 20 schools by student-teacher ratio\n"
+		examples += "  • Compare charter schools vs regular public schools in California\n"
+		examples += "  • How many elementary, middle, and high schools are there in Texas?\n"
+		examples += "  • Find large charter high schools in urban areas\n"
+		examples += "  • Which states have the highest concentration of charter schools?"
+
+		b.WriteString(welcomeBox.Render(welcomeTitle + exampleStyle.Render(examples)))
+		b.WriteString("\n")
+	}
+
+	// AI response display with viewport
+	if m.useAI && m.aiResponse != "" && m.aiViewportReady {
 		responseTitle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("33")).
@@ -913,8 +986,25 @@ func (m model) searchViewRender() string {
 
 		b.WriteString(responseTitle)
 		b.WriteString("\n\n")
-		b.WriteString(aiResponseStyle.Render(m.aiResponse))
+
+		// Display viewport with scrollable content
+		viewportStyle := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("33")).
+			Padding(0, 1)
+
+		b.WriteString(viewportStyle.Render(m.aiViewport.View()))
 		b.WriteString("\n")
+
+		// Add scroll indicator if content is scrollable
+		if m.aiViewport.TotalLineCount() > m.aiViewport.Height {
+			scrollPercent := int(m.aiViewport.ScrollPercent() * 100)
+			scrollInfo := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241")).
+				Render(fmt.Sprintf("─── %d%% (↑/↓/PgUp/PgDn to scroll, Tab to focus input) ───", scrollPercent))
+			b.WriteString(scrollInfo)
+			b.WriteString("\n")
+		}
 	}
 
 	// Results summary stats
@@ -964,9 +1054,13 @@ func (m model) searchViewRender() string {
 
 	var help string
 	if m.useAI {
-		help = "\nEnter: Ask AI | Ctrl+I: Toggle mode | Esc/Ctrl+C: Quit"
+		if m.aiResponse != "" {
+			help = "\nTab: Focus input | ↑/↓/PgUp/PgDn: Scroll | Enter: New query | Ctrl+T: Toggle mode | Esc/Ctrl+C: Quit"
+		} else {
+			help = "\nEnter: Ask AI | Ctrl+T: Toggle mode | Esc/Ctrl+C: Quit"
+		}
 	} else {
-		help = "\nTab: Switch focus | Enter: Search/Select | Ctrl+S: Filter by state | Ctrl+I: Toggle AI mode | Esc/Ctrl+C: Quit"
+		help = "\nTab: Switch focus | Enter: Search/Select | Ctrl+S: Filter by state | Ctrl+T: Toggle AI mode | Esc/Ctrl+C: Quit"
 	}
 	b.WriteString(helpStyle.Render(help))
 
@@ -1325,6 +1419,22 @@ func (m *model) updateDetailViewport() {
 	}
 	content := m.detailViewContent()
 	m.viewport.SetContent(content)
+}
+
+func (m *model) updateAIViewport() {
+	if !m.aiViewportReady || m.aiResponse == "" {
+		return
+	}
+
+	// Render markdown using glamour for beautiful display
+	rendered, err := renderMarkdown(m.aiResponse, m.aiViewport.Width)
+	if err != nil {
+		// Fallback to plain text if markdown rendering fails
+		m.aiViewport.SetContent(m.aiResponse)
+		return
+	}
+
+	m.aiViewport.SetContent(rendered)
 }
 
 func (m model) detailViewRender() string {

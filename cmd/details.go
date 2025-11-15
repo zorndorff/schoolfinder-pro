@@ -33,7 +33,7 @@ Example:
 		}
 
 		if school == nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "No school found with ID: %s\n", schoolID)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "No school found with ID: %s\n", schoolID)
 			return
 		}
 

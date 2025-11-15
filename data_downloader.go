@@ -52,7 +52,7 @@ func GetFileSize(url string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("bad status: %s", resp.Status)
@@ -116,14 +116,14 @@ func DownloadFileWithProgress(filepath string, url string, fileIndex, totalFiles
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	// Get the data
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check server response
 	if resp.StatusCode != http.StatusOK {
@@ -199,7 +199,7 @@ func UnzipFile(src, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		// Skip directories and only extract CSV files
@@ -219,14 +219,18 @@ func UnzipFile(src, dest string) error {
 		// Create the destination file
 		outFile, err := os.Create(fpath)
 		if err != nil {
-			rc.Close()
+			_ = rc.Close()
 			return err
 		}
 
 		// Copy the content
 		_, err = io.Copy(outFile, rc)
-		outFile.Close()
-		rc.Close()
+		if closeErr := outFile.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+		if closeErr := rc.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 
 		if err != nil {
 			return err
@@ -250,7 +254,7 @@ func DownloadAndExtractFiles(dataDir string, missing []DataFile) error {
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir) // Clean up temp directory
+	defer func() { _ = os.RemoveAll(tempDir) }() // Clean up temp directory
 
 	fmt.Println("\n📥 Downloading data files...")
 	fmt.Println("This may take several minutes depending on your connection.")

@@ -139,7 +139,7 @@ func (s *AIScraperService) FetchWebsiteContent(url string) (string, error) {
 		}
 		return "", fmt.Errorf("failed to fetch URL: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		if logger != nil {
@@ -809,7 +809,7 @@ func (s *AIScraperService) QuerySchoolDatabase(ctx context.Context, db *DB, quer
 			// Continue to next retry attempt
 			continue
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		// Success! Process results based on query type
 		var schoolIDs []string

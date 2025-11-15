@@ -2,13 +2,16 @@
 <div class="agent-answer">
     {{if .Error}}
         <div class="error-message">
-            <h3>Error</h3>
+            <h3>Error Analyzing Query</h3>
             <p>{{.Error}}</p>
+            <p style="margin-top: 0.75rem; font-size: 0.875rem; color: var(--text-muted);">
+                Try rephrasing your query or check that the data you're looking for exists in the database.
+            </p>
         </div>
     {{else}}
         {{if .ResponseHTML}}
         <div class="ai-response-text">
-            <h3>AI Analysis</h3>
+            <h3>📊 Analysis</h3>
             <div class="markdown-content">
                 {{.ResponseHTML}}
             </div>
@@ -17,14 +20,14 @@
 
         {{if .SQLQuery}}
         <div class="sql-query">
-            <h3>SQL Query</h3>
+            <h3>🔍 SQL Query</h3>
             <pre class="sql-code">{{.SQLQuery}}</pre>
         </div>
         {{end}}
 
         {{if .TableData}}
         <div class="query-results-table">
-            <h3>Query Results ({{len .TableData}} rows)</h3>
+            <h3>📋 Data Results <span style="font-weight: 400; color: var(--text-muted); font-size: 0.875rem;">({{len .TableData}} rows)</span></h3>
             <div class="table-container">
                 <table class="data-table">
                     <thead>
@@ -50,7 +53,7 @@
 
         {{if .Schools}}
         <div class="agent-results">
-            <h3>Results ({{.TotalCount}} schools found)</h3>
+            <h3>🏫 School Results <span style="font-weight: 400; color: var(--text-muted); font-size: 0.875rem;">({{.TotalCount}} found)</span></h3>
 
             {{if gt .TotalCount .PageSize}}
             <div class="pagination-controls top">

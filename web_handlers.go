@@ -1216,7 +1216,7 @@ Respond in JSON format:
 	// Create the message parameters
 	params := anthropicsdk.MessageNewParams{
 		Model:     anthropicsdk.ModelClaudeHaiku4_5_20251001,
-		MaxTokens: anthropicsdk.Int(2000),
+		MaxTokens: 2000,
 		Messages: []anthropicsdk.MessageParam{
 			anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock(prompt)),
 		},
@@ -1235,8 +1235,8 @@ Respond in JSON format:
 
 	var responseText string
 	for _, block := range message.Content {
-		if block.Type == anthropicsdk.ContentBlockTypeText {
-			responseText += block.Text
+		if textBlock, ok := block.AsAny().(anthropicsdk.TextBlock); ok {
+			responseText += textBlock.Text
 		}
 	}
 

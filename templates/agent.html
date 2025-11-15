@@ -65,7 +65,7 @@
 
             <div id="agent-loading" class="htmx-indicator agent-loading">
                 <div class="spinner"></div>
-                <p>AI is thinking...</p>
+                <p>Analyzing your query and querying the database...</p>
             </div>
 
             <div id="agent-response" class="agent-response">
@@ -75,27 +75,27 @@
                     <div class="agent-welcome">
                         <h2>What would you like to know about the school data?</h2>
                         <div class="suggestion-cards">
-                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                            <button class="suggestion-card" onclick="fillQuery('What is the average enrollment by state?')">
                                 <strong>Statistical Analysis</strong>
                                 <p>What is the average enrollment by state?</p>
                             </button>
-                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                            <button class="suggestion-card" onclick="fillQuery('Show me the top 20 schools by student-teacher ratio')">
                                 <strong>Rankings</strong>
                                 <p>Show me the top 20 schools by student-teacher ratio</p>
                             </button>
-                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                            <button class="suggestion-card" onclick="fillQuery('Compare charter schools vs regular public schools in California')">
                                 <strong>Comparisons</strong>
                                 <p>Compare charter schools vs regular public schools in California</p>
                             </button>
-                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                            <button class="suggestion-card" onclick="fillQuery('How many elementary, middle, and high schools are there in each state?')">
                                 <strong>Distribution</strong>
                                 <p>How many elementary, middle, and high schools are there in each state?</p>
                             </button>
-                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                            <button class="suggestion-card" onclick="fillQuery('Find large charter high schools in urban areas')">
                                 <strong>Specific Search</strong>
                                 <p>Find large charter high schools in urban areas</p>
                             </button>
-                            <button class="suggestion-card" onclick="fillQuery(this.textContent)">
+                            <button class="suggestion-card" onclick="fillQuery('Which states have the highest concentration of charter schools?')">
                                 <strong>Trends</strong>
                                 <p>Which states have the highest concentration of charter schools?</p>
                             </button>
@@ -113,12 +113,12 @@
     </footer>
 
     <script>
-        function fillQuery(text) {
-            // Extract the descriptive text from the suggestion card
+        function fillQuery(query) {
             const textarea = document.getElementById('agent-query');
-            const lines = text.trim().split('\n');
-            textarea.value = lines[lines.length - 1]; // Get the last line (the actual query)
+            textarea.value = query.trim();
             textarea.focus();
+            // Scroll to the query box
+            textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     </script>
 </body>

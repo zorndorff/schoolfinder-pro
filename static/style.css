@@ -913,6 +913,481 @@ details[open] summary {
   font-weight: bold;
 }
 
+/* Main Navigation */
+.main-nav {
+  margin-top: 1rem;
+  display: flex;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.main-nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.main-nav a:hover {
+  color: var(--primary);
+  background: var(--bg-secondary);
+}
+
+.main-nav a.active {
+  color: var(--primary);
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+/* Agent Container */
+.agent-container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.agent-header {
+  background: var(--bg);
+  padding: 2rem;
+  border-radius: 0.5rem;
+  margin-bottom: 2rem;
+  box-shadow: var(--shadow);
+}
+
+.agent-header h1 {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+}
+
+.agent-header .help-text {
+  color: var(--text-muted);
+  line-height: 1.8;
+  margin: 0;
+}
+
+/* Agent Query Box */
+.agent-query-box {
+  background: var(--bg);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.query-input-group {
+  display: flex;
+  gap: 0.75rem;
+  flex-direction: column;
+}
+
+.query-input-group textarea {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  font-family: inherit;
+  line-height: 1.6;
+  background: var(--bg);
+  resize: vertical;
+  min-height: 80px;
+  transition: all 0.2s;
+}
+
+.query-input-group textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.1);
+}
+
+.query-input-group button {
+  align-self: flex-end;
+  padding: 0.75rem 1.5rem;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.query-input-group button:hover:not(:disabled) {
+  background: var(--primary-dark);
+}
+
+.query-input-group button:disabled {
+  background: var(--secondary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Agent Loading */
+.agent-loading {
+  background: var(--bg);
+  padding: 3rem 2rem;
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.agent-loading p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* Agent Response */
+.agent-response {
+  min-height: 100px;
+}
+
+/* Agent Welcome */
+.agent-welcome {
+  background: var(--bg);
+  padding: 2rem;
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow);
+}
+
+.agent-welcome h2 {
+  font-size: 1.5rem;
+  margin-bottom: 1.5rem;
+  color: var(--text);
+  text-align: center;
+}
+
+/* Suggestion Cards */
+.suggestion-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.suggestion-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.suggestion-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+  background: var(--bg);
+}
+
+.suggestion-card strong {
+  display: block;
+  color: var(--primary);
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.suggestion-card p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+/* Agent Answer */
+.agent-answer {
+  background: var(--bg);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.agent-answer > div:not(:last-child) {
+  margin-bottom: 2rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* AI Response Text */
+.ai-response-text {
+  margin-bottom: 2rem;
+}
+
+.ai-response-text h3 {
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ai-response-text .markdown-content {
+  line-height: 1.8;
+  color: var(--text);
+}
+
+.ai-response-text .markdown-content h1,
+.ai-response-text .markdown-content h2,
+.ai-response-text .markdown-content h3,
+.ai-response-text .markdown-content h4 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ai-response-text .markdown-content h1:first-child,
+.ai-response-text .markdown-content h2:first-child,
+.ai-response-text .markdown-content h3:first-child,
+.ai-response-text .markdown-content h4:first-child {
+  margin-top: 0;
+}
+
+.ai-response-text .markdown-content p {
+  margin-bottom: 1rem;
+}
+
+.ai-response-text .markdown-content ul,
+.ai-response-text .markdown-content ol {
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.ai-response-text .markdown-content li {
+  margin-bottom: 0.5rem;
+}
+
+.ai-response-text .markdown-content a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.ai-response-text .markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.ai-response-text .markdown-content code {
+  background: var(--bg-secondary);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 0.875em;
+}
+
+.ai-response-text .markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+}
+
+.ai-response-text .markdown-content table th,
+.ai-response-text .markdown-content table td {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.ai-response-text .markdown-content table th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+.ai-response-text .markdown-content table tr:nth-child(even) {
+  background: var(--bg-secondary);
+}
+
+/* SQL Query */
+.sql-query {
+  margin-bottom: 2rem;
+}
+
+.sql-query h3 {
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sql-code {
+  background: var(--bg-secondary);
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0;
+}
+
+/* Query Results Table */
+.query-results-table {
+  margin-bottom: 2rem;
+}
+
+.query-results-table h3 {
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.table-container {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.data-table thead {
+  background: var(--bg-secondary);
+  position: sticky;
+  top: 0;
+}
+
+.data-table th {
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr:hover {
+  background: var(--bg-secondary);
+}
+
+/* Agent Results */
+.agent-results {
+  margin-top: 2rem;
+}
+
+.agent-results h3 {
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Pagination Controls */
+.pagination-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.pagination-controls.bottom {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+.pagination-info {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.pagination-buttons {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.page-number {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.btn-secondary {
+  background: var(--secondary);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: #475569;
+}
+
+/* School Stats */
+.school-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.school-stats .stat {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.school-stats .stat strong {
+  color: var(--text);
+}
+
+/* Error Message */
+.error-message {
+  padding: 1.5rem;
+  background: #fef2f2;
+  border-left: 4px solid var(--danger);
+  border-radius: 0.5rem;
+  color: var(--text);
+}
+
+.error-message h3 {
+  color: var(--danger);
+  margin-bottom: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.error-message p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+/* Card Header Improvements for Agent Results */
+.agent-results .school-card-header h4 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin: 0;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .search-box {
@@ -952,5 +1427,48 @@ details[open] summary {
   .naep-legend {
     flex-direction: column;
     gap: 0.5rem;
+  }
+
+  .agent-header {
+    padding: 1.5rem;
+  }
+
+  .agent-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .agent-query-box {
+    padding: 1rem;
+  }
+
+  .agent-welcome {
+    padding: 1.5rem;
+  }
+
+  .agent-welcome h2 {
+    font-size: 1.25rem;
+  }
+
+  .suggestion-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-answer {
+    padding: 1rem;
+  }
+
+  .pagination-controls {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .pagination-buttons {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .main-nav {
+    flex-wrap: wrap;
   }
 }

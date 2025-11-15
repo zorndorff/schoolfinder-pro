@@ -1,0 +1,83 @@
+{{if .Error}}
+    <div class="import-error">
+        <h3>Import Failed</h3>
+        <p class="error-message">{{.Error}}</p>
+        <button onclick="location.reload()" class="btn btn-secondary">Try Again</button>
+    </div>
+{{else}}
+    <div class="import-success">
+        <h3>Import Successful!</h3>
+
+        <div class="import-summary">
+            <h4>Summary</h4>
+            <ul>
+                <li><strong>Table Name:</strong> {{.TableName}}</li>
+                <li><strong>Rows Imported:</strong> {{.RowCount}}</li>
+                <li><strong>Columns:</strong> {{.ColumnCount}}</li>
+                <li><strong>File Size:</strong> {{.FileSize}}</li>
+            </ul>
+        </div>
+
+        {{if .DataMetrics}}
+        <div class="data-metrics">
+            <h4>Data Analysis</h4>
+            <div class="metrics-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Column</th>
+                            <th>Type</th>
+                            <th>Min</th>
+                            <th>Max</th>
+                            <th>Unique</th>
+                            <th>Null %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .DataMetrics}}
+                        <tr>
+                            <td><strong>{{.ColumnName}}</strong></td>
+                            <td><code>{{.ColumnType}}</code></td>
+                            <td>{{.Min}}</td>
+                            <td>{{.Max}}</td>
+                            <td>{{.Unique}}</td>
+                            <td>{{.NullPercentage}}%</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
+        {{if .AIDescription}}
+        <div class="ai-description">
+            <h4>AI-Generated Table Description</h4>
+            <p>{{.AIDescription}}</p>
+        </div>
+        {{end}}
+
+        <div class="next-steps">
+            <h4>Next Steps</h4>
+            <p>Your data has been imported and is now available for querying!</p>
+            <div class="action-buttons">
+                <a href="/agent" class="btn btn-primary">Query Your Data</a>
+                <button onclick="location.reload()" class="btn btn-secondary">Import More Data</button>
+            </div>
+        </div>
+
+        {{if .ProcessingStages}}
+        <details class="processing-log">
+            <summary>View Processing Log</summary>
+            <ol>
+                {{range .ProcessingStages}}
+                <li>
+                    <strong>{{.Stage}}</strong>: {{.Message}}
+                    {{if .Duration}}({{.Duration}}){{end}}
+                </li>
+                {{end}}
+            </ol>
+        </details>
+        {{end}}
+    </div>
+{{end}}

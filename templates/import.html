@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import Data - School Finder</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/sse.js"></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><img src="/static/favicon.png" alt="School Finder Icon" class="favicon"/> <a href="/">School Finder</a></h1>
+            <p class="subtitle">Import Your Own Data</p>
+            <nav class="main-nav">
+                <a href="/">Search</a>
+                <a href="/agent">Data Explorer</a>
+                <a href="/import" class="active">Import Data</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="import-container">
+            <div class="import-header">
+                <h1>Bring Your Own Data</h1>
+                <p class="help-text">
+                    Upload a CSV file to import your own data into the system. Once imported, your data will be
+                    available for querying in the AI Data Explorer alongside existing school data.
+                </p>
+            </div>
+
+            <div class="import-form-box">
+                <form
+                    id="import-form"
+                    hx-post="/import/upload"
+                    hx-target="#import-response"
+                    hx-encoding="multipart/form-data"
+                    hx-indicator="#import-loading"
+                >
+                    <div class="form-group">
+                        <label for="csv-file">CSV File</label>
+                        <input
+                            type="file"
+                            id="csv-file"
+                            name="csv_file"
+                            accept=".csv"
+                            required
+                        >
+                        <p class="field-help">Select a CSV file to upload (max 100MB)</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="table-name">Table Name</label>
+                        <input
+                            type="text"
+                            id="table-name"
+                            name="table_name"
+                            placeholder="e.g., my_custom_data"
+                            pattern="[a-z][a-z0-9_]*"
+                            title="Table name must start with a letter and contain only lowercase letters, numbers, and underscores"
+                            required
+                        >
+                        <p class="field-help">Must start with a letter and contain only lowercase letters, numbers, and underscores</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="description">Data Description</label>
+                        <textarea
+                            id="description"
+                            name="description"
+                            rows="4"
+                            placeholder="Describe what this data contains and what you want to do with it. For example: 'This is student performance data from Q1 2024. I want to analyze trends by grade level and compare with previous quarters.'"
+                            required
+                        ></textarea>
+                        <p class="field-help">This helps the AI understand how to work with your data</p>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            Import Data
+                        </button>
+                        <button type="reset" class="btn btn-secondary">
+                            Reset
+                        </button>
+                    </div>
+                </form>
+
+                <div id="import-loading" class="htmx-indicator import-loading">
+                    <div class="spinner"></div>
+                    <p>Processing your data...</p>
+                </div>
+            </div>
+
+            <div id="import-response" class="import-response">
+                {{if .ImportResult}}
+                    {{template "import_result.html" .}}
+                {{else}}
+                    <div class="import-welcome">
+                        <h2>How it works:</h2>
+                        <ol class="import-steps">
+                            <li>
+                                <strong>Upload CSV</strong> - Select your CSV file and give it a unique table name
+                            </li>
+                            <li>
+                                <strong>Analyze Structure</strong> - We'll automatically analyze the columns and data types
+                            </li>
+                            <li>
+                                <strong>Import to Database</strong> - Your data is imported into DuckDB with proper metadata
+                            </li>
+                            <li>
+                                <strong>Query with AI</strong> - Use the Data Explorer to ask questions about your data
+                            </li>
+                        </ol>
+                    </div>
+                {{end}}
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Data from NCES Common Core of Data (CCD) 2023-24 | <a href="https://github.com/yourusername/schoolfinder-pro">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>

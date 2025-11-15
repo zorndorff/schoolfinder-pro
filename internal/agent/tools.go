@@ -248,8 +248,28 @@ func createToolForCommand(
 				}
 				defer cleanup()
 
-				// Get schema information for all tables
-				tables := []string{"directory", "teachers", "enrollment", "ai_scraper_cache", "naep_cache"}
+				// Get list of all tables from database using DuckDB's SHOW ALL TABLES
+				tablesQuery := "SHOW ALL TABLES"
+				tableRows, err := db.ExecuteQuery(tablesQuery)
+				if err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to get table list: %v", err)), nil
+				}
+
+				// Extract table names from SHOW ALL TABLES result
+				var tables []string
+				for _, row := range tableRows {
+					if tableName, ok := row["table_name"].(string); ok {
+						// Skip internal/system tables
+						if tableName != "fts_main_directory" && tableName != "fts_main_directory_docs" && tableName != "fts_main_directory_config" {
+							tables = append(tables, tableName)
+						}
+					} else if name, ok := row["name"].(string); ok {
+						// Some versions use 'name' instead of 'table_name'
+						if name != "fts_main_directory" && name != "fts_main_directory_docs" && name != "fts_main_directory_config" {
+							tables = append(tables, name)
+						}
+					}
+				}
 				type SchemaOutput struct {
 					TableName   string `json:"table_name"`
 					ColumnCount int    `json:"column_count"`

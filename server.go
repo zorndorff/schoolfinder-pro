@@ -50,6 +50,10 @@ func StartServer(config ServerConfig) error {
 	r.Post("/agent/query", webHandler.AgentQuery)
 	r.Post("/agent/paginate", webHandler.AgentPaginate)
 
+	// Data Import routes
+	r.Get("/import", webHandler.ImportPage)
+	r.Post("/import/upload", webHandler.ImportCSV)
+
 	// API handlers (JSON responses)
 	apiHandler := &APIHandler{DB: config.DB, AIScraper: config.AIScraper}
 	r.Route("/api", func(r chi.Router) {

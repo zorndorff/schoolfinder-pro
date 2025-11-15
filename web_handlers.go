@@ -9,12 +9,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/go-chi/chi/v5"
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
@@ -1185,17 +1188,8 @@ func (h *WebHandler) generateAIDescriptions(ctx context.Context, tableName strin
 		return "", nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
 	}
 
-	// Create Anthropic provider
-	provider, err := anthropic.New(anthropic.WithAPIKey(apiKey))
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to create provider: %w", err)
-	}
-
-	// Create language model (use Haiku for speed)
-	model, err := provider.LanguageModel(ctx, "claude-haiku-4-5")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to create model: %w", err)
-	}
+	// Create Anthropic client
+	client := anthropicsdk.NewClient(option.WithAPIKey(apiKey))
 
 	// Build prompt with metrics
 	metricsJSON, _ := json.MarshalIndent(metrics, "", "  ")
@@ -1219,22 +1213,36 @@ Respond in JSON format:
   }
 }`, userDescription, tableName, string(metricsJSON))
 
-	// Generate response
-	result, err := model.GenerateContent(ctx, fantasy.ModelInput{
-		Messages: []fantasy.Message{
-			{
-				Role:    fantasy.MessageRoleUser,
-				Content: fantasy.NewTextContent(prompt),
-			},
+	// Create the message parameters
+	params := anthropicsdk.MessageNewParams{
+		Model:     anthropicsdk.ModelClaudeHaiku4_5_20251001,
+		MaxTokens: anthropicsdk.Int(2000),
+		Messages: []anthropicsdk.MessageParam{
+			anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock(prompt)),
 		},
-	})
+	}
 
+	// Call the Messages API
+	message, err := client.Messages.New(ctx, params)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to generate content: %w", err)
 	}
 
-	// Parse JSON response
-	responseText := result.Content.Text()
+	// Extract response text from content blocks
+	if len(message.Content) == 0 {
+		return "", nil, fmt.Errorf("no content in response")
+	}
+
+	var responseText string
+	for _, block := range message.Content {
+		if block.Type == anthropicsdk.ContentBlockTypeText {
+			responseText += block.Text
+		}
+	}
+
+	if responseText == "" {
+		return "", nil, fmt.Errorf("no text content in response")
+	}
 
 	// Extract JSON from response (may be wrapped in markdown code blocks)
 	jsonStart := strings.Index(responseText, "{")

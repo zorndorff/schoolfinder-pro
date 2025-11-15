@@ -9,12 +9,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/go-chi/chi/v5"
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
@@ -650,19 +653,24 @@ func (h *WebHandler) queryWithAI(ctx context.Context, query string) (*AIQueryRes
 	}
 
 	// Define system prompt for data exploration
-	systemPrompt := `You are a data analyst helping users explore a school database with 102,274 schools from the NCES Common Core of Data (CCD).
+	systemPrompt := `You are a data analyst helping users explore a school database with 102,274 schools from the NCES Common Core of Data (CCD), as well as any user-imported custom datasets.
 
 **Your Task:**
 Answer the user's question by querying the database using the 'query' tool. The tool will return a SUMMARY of the query results. Use this summary to provide a clear, natural language answer to the user's question.
 
 **Available Tools:**
 - 'query': Execute SQL queries against the DuckDB database (returns a summary of results)
-- 'schema': Get database schema information
+- 'schema': Get database schema information for ALL tables including user-imported data
 
-**Database Schema:**
+**Core Database Schema:**
 - **directory**: School information (NCESSCH, SCH_NAME, ST, STATENAME, MCITY, LEA_NAME, SCH_TYPE_TEXT, LEVEL, GSLO, GSHI, CHARTER_TEXT, PHONE, WEBSITE, MSTREET1, MZIP, SCHOOL_YEAR)
 - **enrollment**: Student counts (NCESSCH, STUDENT_COUNT, TOTAL_INDICATOR - use = 'Education Unit Total' for totals)
 - **teachers**: Teacher FTE counts (NCESSCH, TEACHERS)
+
+**User-Imported Tables:**
+- Users can import custom CSV datasets which appear as additional tables
+- Use the 'schema' tool to discover all available tables and their columns
+- Table and column comments provide important context about user-imported data
 
 **Query Strategy:**
 1. For SEARCH queries (finding specific schools): Return SQL that selects NCESSCH IDs and relevant school info
@@ -736,37 +744,80 @@ The query tool will return an error. Analyze the error, correct your SQL, and tr
 	// Create schema tool for database introspection
 	schemaTool := fantasy.NewAgentTool(
 		"schema",
-		"Get database schema information for all tables",
+		"Get database schema information for all tables including user-imported tables",
 		func(ctx context.Context, input agent.SchemaInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			tables := []string{"directory", "teachers", "enrollment"}
+			// Get list of all tables using DuckDB's SHOW ALL TABLES
+			tablesQuery := "SHOW ALL TABLES"
+			tableRows, err := h.DB.ExecuteQuery(tablesQuery)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to get table list: %v", err)), nil
+			}
+
+			// Extract table names from SHOW ALL TABLES result
+			var tables []string
+			for _, row := range tableRows {
+				if tableName, ok := row["table_name"].(string); ok {
+					// Skip internal/system tables
+					if tableName != "fts_main_directory" && tableName != "fts_main_directory_docs" && tableName != "fts_main_directory_config" {
+						tables = append(tables, tableName)
+					}
+				} else if name, ok := row["name"].(string); ok {
+					// Some versions use 'name' instead of 'table_name'
+					if name != "fts_main_directory" && name != "fts_main_directory_docs" && name != "fts_main_directory_config" {
+						tables = append(tables, name)
+					}
+				}
+			}
+
 			type SchemaOutput struct {
-				TableName string `json:"table_name"`
+				TableName   string `json:"table_name"`
+				TableComment string `json:"table_comment,omitempty"`
 				Columns   []struct {
-					Name string `json:"name"`
-					Type string `json:"type"`
+					Name    string `json:"name"`
+					Type    string `json:"type"`
+					Comment string `json:"comment,omitempty"`
 				} `json:"columns"`
 			}
 			schemas := make([]SchemaOutput, 0, len(tables))
 
 			for _, tableName := range tables {
-				pragmaQuery := fmt.Sprintf("PRAGMA table_info('%s')", tableName)
-				rows, err := h.DB.ExecuteQuery(pragmaQuery)
+				// Get column info from duckdb_columns() which includes comments
+				colQuery := fmt.Sprintf("SELECT column_name, data_type, comment FROM duckdb_columns() WHERE table_name = '%s' ORDER BY column_index", tableName)
+				rows, err := h.DB.ExecuteQuery(colQuery)
 				if err != nil {
 					continue
 				}
 
 				schema := SchemaOutput{
 					TableName: tableName,
-					Columns:   make([]struct{ Name string `json:"name"`; Type string `json:"type"` }, 0),
+					Columns:   make([]struct{ Name string `json:"name"`; Type string `json:"type"`; Comment string `json:"comment,omitempty"` }, 0),
 				}
 
+				// Get table comment from duckdb_tables()
+				tableCommentQuery := fmt.Sprintf("SELECT comment FROM duckdb_tables() WHERE table_name = '%s'", tableName)
+				if commentRows, err := h.DB.ExecuteQuery(tableCommentQuery); err == nil && len(commentRows) > 0 {
+					if comment, ok := commentRows[0]["comment"].(string); ok && comment != "" {
+						schema.TableComment = comment
+					}
+				}
+
+				// Get column details and comments
 				for _, row := range rows {
-					name, _ := row["name"].(string)
-					colType, _ := row["type"].(string)
-					schema.Columns = append(schema.Columns, struct {
-						Name string `json:"name"`
-						Type string `json:"type"`
-					}{Name: name, Type: colType})
+					name, _ := row["column_name"].(string)
+					colType, _ := row["data_type"].(string)
+					comment, _ := row["comment"].(string)
+
+					col := struct {
+						Name    string `json:"name"`
+						Type    string `json:"type"`
+						Comment string `json:"comment,omitempty"`
+					}{Name: name, Type: colType}
+
+					if comment != "" {
+						col.Comment = comment
+					}
+
+					schema.Columns = append(schema.Columns, col)
 				}
 
 				schemas = append(schemas, schema)
@@ -869,4 +920,372 @@ func summarizeQueryResults(rows []map[string]interface{}, maxRows int) string {
 	}
 
 	return summary.String()
+}
+
+// ImportPage renders the data import page
+func (h *WebHandler) ImportPage(w http.ResponseWriter, r *http.Request) {
+	data := map[string]interface{}{
+		"Title": "Import Data",
+	}
+
+	if err := h.templates.ExecuteTemplate(w, "import.html", data); err != nil {
+		log.Printf("Template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// ImportResult holds the result of a CSV import operation
+type ImportResult struct {
+	TableName         string
+	RowCount          int64
+	ColumnCount       int
+	FileSize          string
+	DataMetrics       []ColumnMetric
+	AIDescription     string
+	ProcessingStages  []ProcessingStage
+	Error             string
+}
+
+// ColumnMetric holds metrics about a column from SUMMARIZE
+type ColumnMetric struct {
+	ColumnName     string
+	ColumnType     string
+	Min            string
+	Max            string
+	Unique         string
+	NullPercentage string
+}
+
+// ProcessingStage tracks each stage of the import process
+type ProcessingStage struct {
+	Stage    string
+	Message  string
+	Duration string
+}
+
+// ImportCSV handles CSV file upload and import
+func (h *WebHandler) ImportCSV(w http.ResponseWriter, r *http.Request) {
+	result := &ImportResult{
+		ProcessingStages: make([]ProcessingStage, 0),
+	}
+
+	// Stage 1: Parse multipart form
+	stageStart := time.Now()
+	const maxFileSize = 100 * 1024 * 1024 // 100MB
+	if err := r.ParseMultipartForm(maxFileSize); err != nil {
+		result.Error = fmt.Sprintf("Failed to parse form: %v", err)
+		h.renderImportResult(w, result)
+		return
+	}
+	result.ProcessingStages = append(result.ProcessingStages, ProcessingStage{
+		Stage:    "Parse Form",
+		Message:  "Form data parsed successfully",
+		Duration: time.Since(stageStart).String(),
+	})
+
+	// Get form values
+	tableName := r.FormValue("table_name")
+	description := r.FormValue("description")
+
+	if tableName == "" || description == "" {
+		result.Error = "Table name and description are required"
+		h.renderImportResult(w, result)
+		return
+	}
+
+	result.TableName = tableName
+
+	// Stage 2: Get uploaded file
+	stageStart = time.Now()
+	file, header, err := r.FormFile("csv_file")
+	if err != nil {
+		result.Error = fmt.Sprintf("Failed to get uploaded file: %v", err)
+		h.renderImportResult(w, result)
+		return
+	}
+	defer file.Close()
+
+	result.FileSize = formatFileSize(header.Size)
+	result.ProcessingStages = append(result.ProcessingStages, ProcessingStage{
+		Stage:    "File Upload",
+		Message:  fmt.Sprintf("Received file: %s (%s)", header.Filename, result.FileSize),
+		Duration: time.Since(stageStart).String(),
+	})
+
+	// Stage 3: Create user_data directory and save file
+	stageStart = time.Now()
+	userDataDir := filepath.Join(h.DB.dataDir, "user_data")
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		result.Error = fmt.Sprintf("Failed to create user_data directory: %v", err)
+		h.renderImportResult(w, result)
+		return
+	}
+
+	// Save file with table name
+	filePath := filepath.Join(userDataDir, fmt.Sprintf("%s.csv", tableName))
+	outFile, err := os.Create(filePath)
+	if err != nil {
+		result.Error = fmt.Sprintf("Failed to create file: %v", err)
+		h.renderImportResult(w, result)
+		return
+	}
+	defer outFile.Close()
+
+	if _, err := outFile.ReadFrom(file); err != nil {
+		result.Error = fmt.Sprintf("Failed to save file: %v", err)
+		h.renderImportResult(w, result)
+		return
+	}
+
+	result.ProcessingStages = append(result.ProcessingStages, ProcessingStage{
+		Stage:    "Save File",
+		Message:  fmt.Sprintf("File saved to %s", filePath),
+		Duration: time.Since(stageStart).String(),
+	})
+
+	// Stage 4: Run SUMMARIZE to analyze the data
+	stageStart = time.Now()
+	summarizeQuery := fmt.Sprintf("SUMMARIZE SELECT * FROM read_csv('%s', auto_detect=true)", filePath)
+	summaryRows, err := h.DB.ExecuteQuery(summarizeQuery)
+	if err != nil {
+		result.Error = fmt.Sprintf("Failed to analyze CSV: %v", err)
+		h.renderImportResult(w, result)
+		return
+	}
+
+	// Parse summary results into metrics
+	result.DataMetrics = parseSummaryToMetrics(summaryRows)
+	result.ColumnCount = len(result.DataMetrics)
+	result.ProcessingStages = append(result.ProcessingStages, ProcessingStage{
+		Stage:    "Analyze Data",
+		Message:  fmt.Sprintf("Analyzed %d columns", result.ColumnCount),
+		Duration: time.Since(stageStart).String(),
+	})
+
+	// Stage 5: Import data as new table
+	stageStart = time.Now()
+	createTableQuery := fmt.Sprintf(`
+		CREATE TABLE %s AS
+		SELECT * FROM read_csv('%s', auto_detect=true)
+	`, tableName, filePath)
+
+	if _, err := h.DB.ExecuteQuery(createTableQuery); err != nil {
+		result.Error = fmt.Sprintf("Failed to create table: %v", err)
+		h.renderImportResult(w, result)
+		return
+	}
+
+	// Get row count
+	countQuery := fmt.Sprintf("SELECT COUNT(*) as count FROM %s", tableName)
+	countRows, err := h.DB.ExecuteQuery(countQuery)
+	if err == nil && len(countRows) > 0 {
+		if count, ok := countRows[0]["count"].(int64); ok {
+			result.RowCount = count
+		}
+	}
+
+	result.ProcessingStages = append(result.ProcessingStages, ProcessingStage{
+		Stage:    "Create Table",
+		Message:  fmt.Sprintf("Table '%s' created with %d rows", tableName, result.RowCount),
+		Duration: time.Since(stageStart).String(),
+	})
+
+	// Stage 6: Use AI to generate table and column descriptions
+	stageStart = time.Now()
+	aiDescription, columnComments, err := h.generateAIDescriptions(r.Context(), tableName, description, result.DataMetrics)
+	if err != nil {
+		log.Printf("Warning: Failed to generate AI descriptions: %v", err)
+		result.AIDescription = "AI description generation failed"
+	} else {
+		result.AIDescription = aiDescription
+		result.ProcessingStages = append(result.ProcessingStages, ProcessingStage{
+			Stage:    "Generate Descriptions",
+			Message:  "AI-generated table and column descriptions",
+			Duration: time.Since(stageStart).String(),
+		})
+
+		// Stage 7: Add comments to table and columns
+		stageStart = time.Now()
+		if err := h.addTableComments(tableName, aiDescription, columnComments); err != nil {
+			log.Printf("Warning: Failed to add table comments: %v", err)
+		} else {
+			result.ProcessingStages = append(result.ProcessingStages, ProcessingStage{
+				Stage:    "Add Comments",
+				Message:  fmt.Sprintf("Added comments to table and %d columns", len(columnComments)),
+				Duration: time.Since(stageStart).String(),
+			})
+		}
+	}
+
+	h.renderImportResult(w, result)
+}
+
+// renderImportResult renders the import result partial
+func (h *WebHandler) renderImportResult(w http.ResponseWriter, result *ImportResult) {
+	if err := h.templates.ExecuteTemplate(w, "import_result.html", result); err != nil {
+		log.Printf("Template error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+// parseSummaryToMetrics converts SUMMARIZE output to ColumnMetric structs
+func parseSummaryToMetrics(summaryRows []map[string]interface{}) []ColumnMetric {
+	metrics := make([]ColumnMetric, 0, len(summaryRows))
+
+	for _, row := range summaryRows {
+		metric := ColumnMetric{
+			ColumnName: fmt.Sprintf("%v", row["column_name"]),
+			ColumnType: fmt.Sprintf("%v", row["column_type"]),
+			Min:        formatValue(row["min"]),
+			Max:        formatValue(row["max"]),
+			Unique:     formatValue(row["approx_unique"]),
+		}
+
+		// Calculate null percentage if available
+		if nullCount, ok := row["null_percentage"].(float64); ok {
+			metric.NullPercentage = fmt.Sprintf("%.1f", nullCount)
+		} else {
+			metric.NullPercentage = "0"
+		}
+
+		metrics = append(metrics, metric)
+	}
+
+	return metrics
+}
+
+// formatValue safely formats interface{} values for display
+func formatValue(val interface{}) string {
+	if val == nil {
+		return "NULL"
+	}
+	return fmt.Sprintf("%v", val)
+}
+
+// formatFileSize converts bytes to human-readable format
+func formatFileSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// generateAIDescriptions uses Claude to generate descriptions for table and columns
+func (h *WebHandler) generateAIDescriptions(ctx context.Context, tableName string, userDescription string, metrics []ColumnMetric) (string, map[string]string, error) {
+	// Check if AI is available
+	if h.AIScraper == nil {
+		return "", nil, fmt.Errorf("AI not available")
+	}
+
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		return "", nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
+	}
+
+	// Create Anthropic client
+	client := anthropicsdk.NewClient(option.WithAPIKey(apiKey))
+
+	// Build prompt with metrics
+	metricsJSON, _ := json.MarshalIndent(metrics, "", "  ")
+	prompt := fmt.Sprintf(`You are analyzing a newly imported CSV dataset. Based on the user's description and the data metrics, generate:
+1. A concise table description (1-2 sentences) explaining what this table contains and how it should be used in queries
+2. A brief comment for each column explaining what it contains
+
+User's description: %s
+
+Table name: %s
+
+Column metrics:
+%s
+
+Respond in JSON format:
+{
+  "table_description": "...",
+  "column_comments": {
+    "column_name": "comment",
+    ...
+  }
+}`, userDescription, tableName, string(metricsJSON))
+
+	// Create the message parameters
+	params := anthropicsdk.MessageNewParams{
+		Model:     anthropicsdk.ModelClaudeHaiku4_5_20251001,
+		MaxTokens: 2000,
+		Messages: []anthropicsdk.MessageParam{
+			anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock(prompt)),
+		},
+	}
+
+	// Call the Messages API
+	message, err := client.Messages.New(ctx, params)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to generate content: %w", err)
+	}
+
+	// Extract response text from content blocks
+	if len(message.Content) == 0 {
+		return "", nil, fmt.Errorf("no content in response")
+	}
+
+	var responseText string
+	for _, block := range message.Content {
+		if textBlock, ok := block.AsAny().(anthropicsdk.TextBlock); ok {
+			responseText += textBlock.Text
+		}
+	}
+
+	if responseText == "" {
+		return "", nil, fmt.Errorf("no text content in response")
+	}
+
+	// Extract JSON from response (may be wrapped in markdown code blocks)
+	jsonStart := strings.Index(responseText, "{")
+	jsonEnd := strings.LastIndex(responseText, "}")
+	if jsonStart == -1 || jsonEnd == -1 {
+		return "", nil, fmt.Errorf("no JSON found in response")
+	}
+	jsonStr := responseText[jsonStart : jsonEnd+1]
+
+	var aiResponse struct {
+		TableDescription string            `json:"table_description"`
+		ColumnComments   map[string]string `json:"column_comments"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &aiResponse); err != nil {
+		return "", nil, fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+
+	return aiResponse.TableDescription, aiResponse.ColumnComments, nil
+}
+
+// addTableComments adds COMMENT ON statements for table and columns
+func (h *WebHandler) addTableComments(tableName string, tableComment string, columnComments map[string]string) error {
+	// Add table comment
+	tableCommentQuery := fmt.Sprintf("COMMENT ON TABLE %s IS '%s'",
+		tableName,
+		strings.ReplaceAll(tableComment, "'", "''"))
+
+	if _, err := h.DB.ExecuteQuery(tableCommentQuery); err != nil {
+		return fmt.Errorf("failed to add table comment: %w", err)
+	}
+
+	// Add column comments
+	for col, comment := range columnComments {
+		colCommentQuery := fmt.Sprintf("COMMENT ON COLUMN %s.%s IS '%s'",
+			tableName,
+			col,
+			strings.ReplaceAll(comment, "'", "''"))
+
+		if _, err := h.DB.ExecuteQuery(colCommentQuery); err != nil {
+			log.Printf("Warning: Failed to add comment for column %s: %v", col, err)
+		}
+	}
+
+	return nil
 }

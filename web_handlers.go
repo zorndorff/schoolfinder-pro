@@ -422,23 +422,23 @@ func (h *WebHandler) AgentPage(w http.ResponseWriter, r *http.Request) {
 
 // AgentQueryResponse holds the response data for agent queries
 type AgentQueryResponse struct {
-	Query         string
-	ResponseText  string        // AI's text summary/answer (markdown)
-	ResponseHTML  template.HTML // AI's response converted to HTML
-	SQLQuery      string        // The SQL query executed
-	TableData     []map[string]interface{} // Raw query results as table
-	TableColumns  []string // Column names for table display
-	Schools       []*School
-	TotalCount    int
-	Page          int
-	PageSize      int
-	TotalPages    int
-	StartIndex    int
-	EndIndex      int
-	PrevPage      int
-	NextPage      int
-	SchoolIDs     string
-	Error         string
+	Query        string
+	ResponseText string                   // AI's text summary/answer (markdown)
+	ResponseHTML template.HTML            // AI's response converted to HTML
+	SQLQuery     string                   // The SQL query executed
+	TableData    []map[string]interface{} // Raw query results as table
+	TableColumns []string                 // Column names for table display
+	Schools      []*School
+	TotalCount   int
+	Page         int
+	PageSize     int
+	TotalPages   int
+	StartIndex   int
+	EndIndex     int
+	PrevPage     int
+	NextPage     int
+	SchoolIDs    string
+	Error        string
 }
 
 // AgentQuery handles AI agent queries
@@ -770,9 +770,9 @@ The query tool will return an error. Analyze the error, correct your SQL, and tr
 			}
 
 			type SchemaOutput struct {
-				TableName   string `json:"table_name"`
+				TableName    string `json:"table_name"`
 				TableComment string `json:"table_comment,omitempty"`
-				Columns   []struct {
+				Columns      []struct {
 					Name    string `json:"name"`
 					Type    string `json:"type"`
 					Comment string `json:"comment,omitempty"`
@@ -790,7 +790,11 @@ The query tool will return an error. Analyze the error, correct your SQL, and tr
 
 				schema := SchemaOutput{
 					TableName: tableName,
-					Columns:   make([]struct{ Name string `json:"name"`; Type string `json:"type"`; Comment string `json:"comment,omitempty"` }, 0),
+					Columns: make([]struct {
+						Name    string `json:"name"`
+						Type    string `json:"type"`
+						Comment string `json:"comment,omitempty"`
+					}, 0),
 				}
 
 				// Get table comment from duckdb_tables()
@@ -936,14 +940,14 @@ func (h *WebHandler) ImportPage(w http.ResponseWriter, r *http.Request) {
 
 // ImportResult holds the result of a CSV import operation
 type ImportResult struct {
-	TableName         string
-	RowCount          int64
-	ColumnCount       int
-	FileSize          string
-	DataMetrics       []ColumnMetric
-	AIDescription     string
-	ProcessingStages  []ProcessingStage
-	Error             string
+	TableName        string
+	RowCount         int64
+	ColumnCount      int
+	FileSize         string
+	DataMetrics      []ColumnMetric
+	AIDescription    string
+	ProcessingStages []ProcessingStage
+	Error            string
 }
 
 // ColumnMetric holds metrics about a column from SUMMARIZE
@@ -1005,6 +1009,14 @@ func (h *WebHandler) ImportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// Detect file type from extension
+	fileExt := strings.ToLower(filepath.Ext(header.Filename))
+	if fileExt != ".csv" && fileExt != ".xlsx" {
+		result.Error = "Unsupported file type. Please upload a .csv or .xlsx file"
+		h.renderImportResult(w, result)
+		return
+	}
+
 	result.FileSize = formatFileSize(header.Size)
 	result.ProcessingStages = append(result.ProcessingStages, ProcessingStage{
 		Stage:    "File Upload",
@@ -1021,8 +1033,8 @@ func (h *WebHandler) ImportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save file with table name
-	filePath := filepath.Join(userDataDir, fmt.Sprintf("%s.csv", tableName))
+	// Save file with table name and appropriate extension
+	filePath := filepath.Join(userDataDir, fmt.Sprintf("%s%s", tableName, fileExt))
 	outFile, err := os.Create(filePath)
 	if err != nil {
 		result.Error = fmt.Sprintf("Failed to create file: %v", err)
@@ -1045,10 +1057,17 @@ func (h *WebHandler) ImportCSV(w http.ResponseWriter, r *http.Request) {
 
 	// Stage 4: Run SUMMARIZE to analyze the data
 	stageStart = time.Now()
-	summarizeQuery := fmt.Sprintf("SUMMARIZE SELECT * FROM read_csv('%s', auto_detect=true)", filePath)
+	// Determine which DuckDB function to use based on file extension
+	var readFunction string
+	if fileExt == ".xlsx" {
+		readFunction = fmt.Sprintf("read_xlsx('%s')", filePath)
+	} else {
+		readFunction = fmt.Sprintf("read_csv('%s', auto_detect=true)", filePath)
+	}
+	summarizeQuery := fmt.Sprintf("SUMMARIZE SELECT * FROM %s", readFunction)
 	summaryRows, err := h.DB.ExecuteQuery(summarizeQuery)
 	if err != nil {
-		result.Error = fmt.Sprintf("Failed to analyze CSV: %v", err)
+		result.Error = fmt.Sprintf("Failed to analyze data file: %v", err)
 		h.renderImportResult(w, result)
 		return
 	}
@@ -1066,8 +1085,8 @@ func (h *WebHandler) ImportCSV(w http.ResponseWriter, r *http.Request) {
 	stageStart = time.Now()
 	createTableQuery := fmt.Sprintf(`
 		CREATE TABLE %s AS
-		SELECT * FROM read_csv('%s', auto_detect=true)
-	`, tableName, filePath)
+		SELECT * FROM %s
+	`, tableName, readFunction)
 
 	if _, err := h.DB.ExecuteQuery(createTableQuery); err != nil {
 		result.Error = fmt.Sprintf("Failed to create table: %v", err)

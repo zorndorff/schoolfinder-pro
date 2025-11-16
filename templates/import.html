@@ -26,7 +26,7 @@
             <div class="import-header">
                 <h1>Bring Your Own Data</h1>
                 <p class="help-text">
-                    Upload a CSV file to import your own data into the system. Once imported, your data will be
+                    Upload a CSV or Excel (.xlsx) file to import your own data into the system. Once imported, your data will be
                     available for querying in the AI Data Explorer alongside existing school data.
                 </p>
             </div>
@@ -40,15 +40,15 @@
                     hx-indicator="#import-loading"
                 >
                     <div class="form-group">
-                        <label for="csv-file">CSV File</label>
+                        <label for="csv-file">Data File</label>
                         <input
                             type="file"
                             id="csv-file"
                             name="csv_file"
-                            accept=".csv"
+                            accept=".csv,.xlsx"
                             required
                         >
-                        <p class="field-help">Select a CSV file to upload (max 100MB)</p>
+                        <p class="field-help">Select a CSV or Excel (.xlsx) file to upload (max 100MB)</p>
                     </div>
 
                     <div class="form-group">
@@ -101,7 +101,7 @@
                         <h2>How it works:</h2>
                         <ol class="import-steps">
                             <li>
-                                <strong>Upload CSV</strong> - Select your CSV file and give it a unique table name
+                                <strong>Upload Data</strong> - Select your CSV or Excel (.xlsx) file and give it a unique table name
                             </li>
                             <li>
                                 <strong>Analyze Structure</strong> - We'll automatically analyze the columns and data types
